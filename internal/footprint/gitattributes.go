@@ -51,15 +51,10 @@ func parseGitattributes(data []byte) ([]attrRule, error) {
 			return nil, fmt.Errorf("footprint: .gitattributes line %d: %w", i+1, err)
 		}
 		for _, a := range fields[1:] {
-			switch a {
-			case "linguist-generated", "linguist-generated=true":
-				rule.generated = attrSet
-			case "-linguist-generated", "!linguist-generated", "linguist-generated=false":
-				rule.generated = attrUnset
-			case "linguist-vendored", "linguist-vendored=true":
-				rule.vendor = attrSet
-			case "-linguist-vendored", "!linguist-vendored", "linguist-vendored=false":
-				rule.vendor = attrUnset
+			if st, ok := attrValue(a, "linguist-generated"); ok {
+				rule.generated = st
+			} else if st, ok := attrValue(a, "linguist-vendored"); ok {
+				rule.vendor = st
 			}
 		}
 		if rule.generated != attrUntouched || rule.vendor != attrUntouched {
@@ -67,6 +62,23 @@ func parseGitattributes(data []byte) ([]attrRule, error) {
 		}
 	}
 	return rules, nil
+}
+
+// attrValue reads one attribute token for the named attribute: `name` and `name=true` set it;
+// `-name`, `!name` and `name=<any other value>` unset it. ok is false for any other token.
+func attrValue(token, name string) (state attrState, ok bool) {
+	switch {
+	case token == name:
+		return attrSet, true
+	case token == "-"+name || token == "!"+name:
+		return attrUnset, true
+	case strings.HasPrefix(token, name+"="):
+		if token == name+"=true" {
+			return attrSet, true
+		}
+		return attrUnset, true
+	}
+	return attrUntouched, false
 }
 
 // newAttrRule turns a .gitattributes pattern into a root-anchored glob. A pattern with no `/`
