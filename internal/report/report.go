@@ -154,12 +154,24 @@ func reasonText(reason string) string {
 	return reason
 }
 
-// code wraps s in a Markdown code span that survives backticks inside s.
+// code renders s as an inline Markdown code span. Line breaks become spaces, the backtick fence is
+// one longer than the longest backtick run in s, and a space pads the content when it starts or
+// ends with a backtick. Every string that comes from a lock, a path or a config goes through it, so
+// none of it can mention users, close the comment marker or start a heading.
 func code(s string) string {
-	fence := "`"
-	for strings.Contains(s, fence) {
-		fence += "`"
+	s = strings.NewReplacer("\r\n", " ", "\r", " ", "\n", " ").Replace(s)
+	longest, run := 0, 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '`' {
+			run++
+			if run > longest {
+				longest = run
+			}
+		} else {
+			run = 0
+		}
 	}
+	fence := strings.Repeat("`", longest+1)
 	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
 		return fence + " " + s + " " + fence
 	}
@@ -187,11 +199,11 @@ func CheckSummary(r verify.Result, d policy.Decision) string {
 	if len(doc.Problems) > 0 || hasLockProblems(doc) {
 		b.WriteString("\n### Could not verify\n\n")
 		for _, p := range doc.Problems {
-			b.WriteString("- configuration: " + p + "\n")
+			b.WriteString("- configuration: " + code(p) + "\n")
 		}
 		for _, l := range doc.Locks {
 			for _, p := range l.Problems {
-				b.WriteString("- " + code(l.Path) + ": " + p + "\n")
+				b.WriteString("- " + code(l.Path) + ": " + code(p) + "\n")
 			}
 		}
 	}
@@ -212,7 +224,7 @@ func CheckSummary(r verify.Result, d policy.Decision) string {
 			if len(l.Suspect) > 0 {
 				marker = " ⚠ suspect"
 			}
-			b.WriteString("- **" + c.ID + "**" + marker + ": " + c.Text + "\n")
+			b.WriteString("- " + code(c.ID) + marker + ": " + code(c.Text) + "\n")
 			b.WriteString("  - footprint: " + codeList(c.Footprint) + "\n")
 		}
 	}
@@ -252,7 +264,7 @@ func writeFindings(b *strings.Builder, fs []footprint.Finding) {
 	for _, f := range fs {
 		b.WriteString("- " + code(f.Path) + " (" + string(f.Status) + ")")
 		if f.Fix != "" {
-			b.WriteString(": nearest criterion " + f.NearestCriterion + " of lock " + f.LockID + ". If the change is intended, run " + code(f.Fix))
+			b.WriteString(": nearest criterion " + code(f.NearestCriterion) + " of lock " + code(f.LockID) + ". If the change is intended, run " + code(f.Fix))
 		}
 		b.WriteString("\n")
 	}
@@ -276,11 +288,11 @@ func Comment(r verify.Result, d policy.Decision) string {
 	if len(doc.Problems) > 0 || hasLockProblems(doc) {
 		b.WriteString("\n**Could not verify**\n\n")
 		for _, p := range doc.Problems {
-			b.WriteString("- configuration: " + p + "\n")
+			b.WriteString("- configuration: " + code(p) + "\n")
 		}
 		for _, l := range doc.Locks {
 			for _, p := range l.Problems {
-				b.WriteString("- " + code(l.Path) + ": " + p + "\n")
+				b.WriteString("- " + code(l.Path) + ": " + code(p) + "\n")
 			}
 		}
 	}

@@ -10,7 +10,7 @@ Advisory only: this check never blocks a merge.
 
 ### Outside every footprint (4)
 
-- `cmd/new/main.go` (added): nearest criterion C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'cmd/new/**'`
-- `internal/gitx/diff.go` (modified): nearest criterion C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'internal/gitx/**'`
-- `pkg/a.go` (renamed): nearest criterion C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'`
-- `pkg/b.go` (renamed): nearest criterion C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'`
+- `cmd/new/main.go` (added): nearest criterion `C1` of lock `01JD8Z6Q4M7R2T9X3B5N8K1C6F`. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'cmd/new/**'`
+- `internal/gitx/diff.go` (modified): nearest criterion `C1` of lock `01JD8Z6Q4M7R2T9X3B5N8K1C6F`. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'internal/gitx/**'`
+- `pkg/a.go` (renamed): nearest criterion `C1` of lock `01JD8Z6Q4M7R2T9X3B5N8K1C6F`. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'`
+- `pkg/b.go` (renamed): nearest criterion `C1` of lock `01JD8Z6Q4M7R2T9X3B5N8K1C6F`. If the change is intended, run `intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'`

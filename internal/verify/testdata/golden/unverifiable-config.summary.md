@@ -2,4 +2,4 @@
 
 ### Could not verify
 
-- configuration: footprint: .intentgate.yml: version must be 1, got 3
+- configuration: `footprint: .intentgate.yml: version must be 1, got 3`

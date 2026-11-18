@@ -110,7 +110,7 @@ func TestMarkdown_LockTextStaysInCodeSpans(t *testing.T) {
 		t.Errorf("the marker must be first, intact and appear once:\n%s", c)
 	}
 	// the hostile strings are all still there, in spans
-	_, spans := stripCodeSpans(c)
+	_, spans := stripCodeSpans(c + "\n" + report.CheckSummary(r, d)) // criterion text is in the summary
 	joined := strings.Join(spans, "\n")
 	for _, want := range []string{"@evil/team", "Outside every footprint (0)", "-->", "@everyone"} {
 		if !strings.Contains(joined, want) {
