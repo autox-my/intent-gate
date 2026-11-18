@@ -57,3 +57,31 @@ func TestMask_RedactsSecrets(t *testing.T) {
 		}
 	})
 }
+
+func stub(fs ...Finding) Detector { return func(string) ([]Finding, error) { return fs, nil } }
+
+// REQ-0015
+func TestMaskWith_FindingNotInText(t *testing.T) {
+	for name, fs := range map[string][]Finding{
+		"a secret absent from the text":      {{RuleID: "r1", Secret: "nowhere-to-be-found"}},
+		"one present and one absent":         {{RuleID: "r1", Secret: "abc"}, {RuleID: "r2", Secret: "nowhere"}},
+		"an empty secret cannot be located":  {{RuleID: "r1", Secret: ""}},
+		"a secret that differs only in case": {{RuleID: "r1", Secret: "ABC"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, n, err := MaskWith(stub(fs...), "xx abc yy")
+			if err == nil {
+				t.Fatalf("want an error, got (%q, %d)", m, n)
+			}
+			if m != (Masked{}) || n != 0 {
+				t.Fatalf("an error must come with the zero Masked and 0, got (%q, %d)", m, n)
+			}
+		})
+	}
+	t.Run("MaskAndBuild writes nothing on it", func(t *testing.T) {
+		l, m, err := MaskAndBuild(stub(Finding{RuleID: "r1", Secret: "nope"}), "xx abc yy", testInput())
+		if err == nil || m != (Masked{}) || l.ID != "" {
+			t.Fatalf("got (%+v, %q, %v)", l, m, err)
+		}
+	})
+}

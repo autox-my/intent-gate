@@ -76,7 +76,10 @@ func MaskWith(d Detector, text string) (Masked, int, error) {
 	hits := findings[:0:0]
 	seen := map[Finding]bool{}
 	for _, f := range findings {
-		if f.Secret == "" || seen[f] {
+		if f.Secret == "" || !strings.Contains(text, f.Secret) {
+			return Masked{}, 0, fmt.Errorf("secret scan: rule %s found a secret that is not in the text; refusing to continue unmasked", f.RuleID)
+		}
+		if seen[f] {
 			continue
 		}
 		seen[f] = true
