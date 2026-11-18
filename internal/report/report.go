@@ -54,7 +54,25 @@ func newDocument(r verify.Result) document {
 		l.Criteria = crit
 		d.Locks = append(d.Locks, l)
 	}
-	sort.SliceStable(d.Locks, func(i, j int) bool { return d.Locks[i].Path < d.Locks[j].Path })
+	// total order: the path, then the whole lock result (its JSON is the same bytes for equal
+	// results), so entries that agree on the path never keep the input order
+	keys := make(map[int][]byte, len(d.Locks))
+	order := make([]int, len(d.Locks))
+	for i := range d.Locks {
+		keys[i], order[i] = marshal(d.Locks[i]), i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		x, y := d.Locks[order[a]], d.Locks[order[b]]
+		if x.Path != y.Path {
+			return x.Path < y.Path
+		}
+		return bytes.Compare(keys[order[a]], keys[order[b]]) < 0
+	})
+	sorted := make([]verify.LockResult, len(d.Locks))
+	for i, o := range order {
+		sorted[i] = d.Locks[o]
+	}
+	d.Locks = sorted
 	return d
 }
 
@@ -75,8 +93,10 @@ func sortedFindings(in []footprint.Finding) []footprint.Finding {
 			return a.Status < b.Status
 		case a.NearestCriterion != b.NearestCriterion:
 			return a.NearestCriterion < b.NearestCriterion
+		case a.LockID != b.LockID:
+			return a.LockID < b.LockID
 		}
-		return a.LockID < b.LockID
+		return a.Fix < b.Fix
 	})
 	return out
 }
