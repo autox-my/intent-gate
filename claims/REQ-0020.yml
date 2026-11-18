@@ -13,3 +13,4 @@ rationale:
 relations: []
 tests:
   - "intentgate/cmd/intentgate::TestHook_PlanReviewNeverBlocks"
+  - "intentgate/cmd/intentgate::TestLock_PlanReviewDoesNotBlock"
