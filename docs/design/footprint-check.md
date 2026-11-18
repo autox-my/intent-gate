@@ -49,6 +49,8 @@ implicit_footprints:
   remove:
     - "**/dist/**"         # this repo commits dist/ deliberately and wants it checked
   test_pairing: true       # false disables the paired-test rule
+skip_authors:              # PR authors the PR check skips, added to the defaults (pr-check.md §1)
+  - "my-release-bot"
 ```
 
 `add` and `remove` adjust the default globs; there is no way to replace the defaults wholesale in Phase 0. A malformed file is UNVERIFIABLE (exit 3), never "use the defaults".
