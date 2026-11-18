@@ -222,6 +222,14 @@ func (c *Client) do(ctx context.Context, method, target string, body []byte, out
 		}
 		return nil, fmt.Errorf("github: %s %s: %d %s", method, target, resp.StatusCode, scrubString(msg, c.Token))
 	}
+	// An empty 2xx is success for PATCH and DELETE, which need nothing from the answer; POST still
+	// needs the created id, and GET the data, so an empty body stays a decode error for them.
+	if len(bytes.TrimSpace(data)) == 0 && (method == http.MethodPatch || method == http.MethodDelete) {
+		return resp.Header, nil
+	}
+	if out == nil {
+		return resp.Header, nil
+	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return nil, fmt.Errorf("github: %s %s: bad JSON: %w", method, target, err)
 	}

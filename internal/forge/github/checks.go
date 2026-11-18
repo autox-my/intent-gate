@@ -2,9 +2,9 @@ package github
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -12,6 +12,9 @@ import (
 const (
 	maxSummary      = 65535 // GitHub's bound on a check run's output.summary, in bytes
 	truncatedSuffix = "\n… (truncated)"
+
+	maxComment          = 65000 // our bound on a comment body, in bytes (GitHub's is 65 536 characters)
+	commentTruncatedEnd = "\n… (truncated; the check run has the full summary)"
 )
 
 // CheckRun is the content of one check run: the Checks API fields IntentGate writes. Its status
@@ -97,14 +100,20 @@ func (c *Client) UpdateCheckRun(ctx context.Context, owner, repo string, id int6
 // truncateSummary keeps s whole when it fits and otherwise cuts it so that, with the final line
 // "… (truncated)", it is at most 65 535 bytes, without splitting a UTF-8 sequence.
 func truncateSummary(s string) string {
-	if len(s) <= maxSummary {
+	return cutUTF8(s, maxSummary, truncatedSuffix)
+}
+
+// cutUTF8 returns s when it is at most limit bytes, else a prefix of it ending on a rune boundary
+// followed by suffix, at most limit bytes in all.
+func cutUTF8(s string, limit int, suffix string) string {
+	if len(s) <= limit {
 		return s
 	}
-	cut := maxSummary - len(truncatedSuffix)
+	cut := limit - len(suffix)
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return s[:cut] + truncatedSuffix
+	return s[:cut] + suffix
 }
 
 // FindComment returns the id of the first comment on pull request pr whose body starts with marker
@@ -112,13 +121,29 @@ func truncateSummary(s string) string {
 // ?per_page=100, following Link: rel="next". A comment by anyone else is never a match, whatever
 // it contains.
 func (c *Client) FindComment(ctx context.Context, owner, repo string, pr int, marker, author string) (id int64, found bool, err error) {
-	if author == "" || marker == "" {
-		return 0, false, nil
+	ids, err := c.scanComments(ctx, owner, repo, pr, marker, author, true)
+	if err != nil || len(ids) == 0 {
+		return 0, false, err
 	}
+	return ids[0], true, nil
+}
+
+// FindComments is FindComment returning every match, oldest (lowest) id first.
+func (c *Client) FindComments(ctx context.Context, owner, repo string, pr int, marker, author string) ([]int64, error) {
+	ids, err := c.scanComments(ctx, owner, repo, pr, marker, author, false)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, err
+}
+
+func (c *Client) scanComments(ctx context.Context, owner, repo string, pr int, marker, author string, first bool) ([]int64, error) {
+	if author == "" || marker == "" {
+		return nil, nil
+	}
+	var ids []int64
 	next := c.repoPath(owner, repo, pr, "/comments") + "?per_page=100"
 	for pages := 0; next != ""; pages++ {
 		if pages >= maxPages {
-			return 0, false, fmt.Errorf("github: more than %d pages of comments", maxPages)
+			return nil, fmt.Errorf("github: more than %d pages of comments", maxPages)
 		}
 		var raw []struct {
 			ID   int64   `json:"id"`
@@ -127,16 +152,19 @@ func (c *Client) FindComment(ctx context.Context, owner, repo string, pr int, ma
 		}
 		h, err := c.get(ctx, next, &raw)
 		if err != nil {
-			return 0, false, err
+			return nil, err
 		}
 		for _, r := range raw {
 			if r.Body != nil && r.User != nil && strings.HasPrefix(*r.Body, marker) && strings.EqualFold(r.User.Login, author) {
-				return r.ID, true, nil
+				ids = append(ids, r.ID)
+				if first {
+					return ids, nil
+				}
 			}
 		}
 		next = nextLink(h.Get("Link"))
 	}
-	return 0, false, nil
+	return ids, nil
 }
 
 // CreateComment is POST /repos/{o}/{r}/issues/{pr}/comments and returns the new comment's id.
@@ -144,7 +172,7 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, pr int, 
 	var out struct {
 		ID int64 `json:"id"`
 	}
-	if err := c.send(ctx, "POST", c.repoPath(owner, repo, pr, "/comments"), map[string]string{"body": body}, &out); err != nil {
+	if err := c.send(ctx, "POST", c.repoPath(owner, repo, pr, "/comments"), map[string]string{"body": truncateComment(body)}, &out); err != nil {
 		return 0, err
 	}
 	return out.ID, nil
@@ -153,15 +181,18 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, pr int, 
 // UpdateComment is PATCH /repos/{o}/{r}/issues/comments/{id}.
 func (c *Client) UpdateComment(ctx context.Context, owner, repo string, id int64, body string) error {
 	target := fmt.Sprintf("/repos/%s/%s/issues/comments/%d", url.PathEscape(owner), url.PathEscape(repo), id)
-	return c.send(ctx, "PATCH", target, map[string]string{"body": body}, &struct{}{})
+	return c.send(ctx, "PATCH", target, map[string]string{"body": truncateComment(body)}, &struct{}{})
 }
 
-// FindComments is FindComment returning every match, oldest id first. (stub)
-func (c *Client) FindComments(ctx context.Context, owner, repo string, pr int, marker, author string) ([]int64, error) {
-	return nil, errors.New("not implemented")
-}
-
-// DeleteComment is DELETE /repos/{o}/{r}/issues/comments/{id}. (stub)
+// DeleteComment is DELETE /repos/{o}/{r}/issues/comments/{id}.
 func (c *Client) DeleteComment(ctx context.Context, owner, repo string, id int64) error {
-	return errors.New("not implemented")
+	target := fmt.Sprintf("/repos/%s/%s/issues/comments/%d", url.PathEscape(owner), url.PathEscape(repo), id)
+	_, err := c.do(ctx, "DELETE", target, nil, nil)
+	return err
+}
+
+// truncateComment keeps a comment body whole when it fits in 65 000 bytes and otherwise cuts it so
+// that, with the final line, it is at most 65 000 bytes, without splitting a UTF-8 sequence.
+func truncateComment(s string) string {
+	return cutUTF8(s, maxComment, commentTruncatedEnd)
 }
