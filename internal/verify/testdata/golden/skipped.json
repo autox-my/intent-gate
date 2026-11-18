@@ -1,0 +1,8 @@
+{
+  "schema": "intentgate.verify/1",
+  "outcome": "skipped",
+  "exit_code": 0,
+  "problems": [],
+  "locks": [],
+  "findings": []
+}

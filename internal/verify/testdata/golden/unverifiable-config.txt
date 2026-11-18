@@ -1,0 +1,2 @@
+outcome: unverifiable (exit 3)
+problem: footprint: .intentgate.yml: version must be 1, got 3

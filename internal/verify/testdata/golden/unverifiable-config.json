@@ -1,0 +1,10 @@
+{
+  "schema": "intentgate.verify/1",
+  "outcome": "unverifiable",
+  "exit_code": 3,
+  "problems": [
+    "footprint: .intentgate.yml: version must be 1, got 3"
+  ],
+  "locks": [],
+  "findings": []
+}

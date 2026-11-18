@@ -48,6 +48,24 @@ type fileConfig struct {
 		Remove      []string `yaml:"remove"`
 		TestPairing *bool    `yaml:"test_pairing"`
 	} `yaml:"implicit_footprints"`
+	SkipAuthors loginList `yaml:"skip_authors"`
+}
+
+// loginList is a YAML sequence of strings. yaml.v3 would decode `7` or `true` into a string, so the
+// scalar tags are checked.
+type loginList []string
+
+func (l *loginList) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.SequenceNode {
+		return fmt.Errorf("skip_authors must be a list of logins")
+	}
+	for i, e := range n.Content {
+		if e.Kind != yaml.ScalarNode || e.Tag != "!!str" || strings.TrimSpace(e.Value) == "" {
+			return fmt.Errorf("skip_authors[%d]: must be a non-empty login string", i)
+		}
+		*l = append(*l, e.Value)
+	}
+	return nil
 }
 
 // ParseConfig parses .intentgate.yml. nil or empty data means "no file" and yields the defaults.
@@ -80,6 +98,7 @@ func ParseConfig(data []byte) (Config, error) {
 			cfg.NoTestPairing = !*ifp.TestPairing
 		}
 	}
+	cfg.SkipAuthors = fc.SkipAuthors
 	if _, err := cfg.resolve(); err != nil {
 		return Config{}, err
 	}

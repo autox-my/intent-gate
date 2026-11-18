@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "IntentGate",
+          "version": "0.0.0-golden",
+          "rules": [
+            {
+              "id": "intentgate/outside-footprint",
+              "shortDescription": {
+                "text": "A changed file is outside every criterion's footprint"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "intentgate/outside-footprint",
+          "level": "warning",
+          "message": {
+            "text": "cmd/new/main.go is outside every criterion's footprint (nearest criterion: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F). If the change is intended, run: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'cmd/new/**'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "cmd/new/main.go"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "intentgate/outside-footprint",
+          "level": "warning",
+          "message": {
+            "text": "internal/gitx/diff.go is outside every criterion's footprint (nearest criterion: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F). If the change is intended, run: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'internal/gitx/**'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "internal/gitx/diff.go"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "intentgate/outside-footprint",
+          "level": "warning",
+          "message": {
+            "text": "pkg/a.go is outside every criterion's footprint (nearest criterion: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F). If the change is intended, run: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg/a.go"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "intentgate/outside-footprint",
+          "level": "warning",
+          "message": {
+            "text": "pkg/b.go is outside every criterion's footprint (nearest criterion: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F). If the change is intended, run: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "pkg/b.go"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

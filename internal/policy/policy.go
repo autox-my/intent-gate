@@ -24,7 +24,32 @@ type Decision struct {
 	Title      string
 }
 
-// Decide maps r to a decision (pr-check.md §4).
+// Titles of the check run, one per outcome (pr-check.md §4).
+const (
+	TitleNoLock       = "No intent lock in this pull request"
+	TitleClean        = "All criteria inside their footprints"
+	TitleFindings     = "Changes outside the intent lock's footprints, or a suspect lock"
+	TitleUnverifiable = "The intent lock could not be verified"
+)
+
+// Decide maps r to a decision (pr-check.md §4). Phase 0 is advisory: the conclusion is always
+// success or neutral (REQ-0039), and a skipped pull request publishes nothing (REQ-0034).
 func Decide(r verify.Result) Decision {
-	return Decision{}
+	switch r.Outcome {
+	case verify.Skipped:
+		return Decision{Publish: false, Conclusion: "neutral", Comment: None}
+	case verify.NoLock:
+		// REQ-0033: no lock, no comment
+		return Decision{Publish: true, Conclusion: "neutral", Comment: None, Title: TitleNoLock}
+	case verify.Clean:
+		// REQ-0038: a clean result never creates a comment; an existing one is edited
+		return Decision{Publish: true, Conclusion: "success", Comment: UpdateIfExists, Title: TitleClean}
+	case verify.Findings:
+		return Decision{Publish: true, Conclusion: "neutral", Comment: Upsert, Title: TitleFindings}
+	case verify.Unverifiable:
+		return Decision{Publish: true, Conclusion: "neutral", Comment: Upsert, Title: TitleUnverifiable}
+	default:
+		// an outcome this version does not know: stay advisory and say nothing in a comment
+		return Decision{Publish: true, Conclusion: "neutral", Comment: None, Title: "IntentGate could not decide"}
+	}
 }

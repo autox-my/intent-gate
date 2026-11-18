@@ -1,0 +1,22 @@
+outcome: findings (exit 1)
+
+lock .intent/01JD8Z6Q4M7R2T9X3B5N8K1C6F.yml (id 01JD8Z6Q4M7R2T9X3B5N8K1C6F, revision 1)
+  suspect: retargeted
+  C1: Findings are published as SARIF.
+      footprint: internal/report/**, !internal/report/legacy/**
+  C2: Policy maps outcomes to conclusions.
+      footprint: internal/policy/**
+
+outside every footprint:
+  cmd/new/main.go (added)
+      nearest: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+      fix: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'cmd/new/**'
+  internal/gitx/diff.go (modified)
+      nearest: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+      fix: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'internal/gitx/**'
+  pkg/a.go (renamed)
+      nearest: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+      fix: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'
+  pkg/b.go (renamed)
+      nearest: C1 of lock 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+      fix: intentgate amend 01JD8Z6Q4M7R2T9X3B5N8K1C6F --criterion C1 --add 'pkg/**'
