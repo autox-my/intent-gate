@@ -31,6 +31,13 @@ The third way to ratify: a lock from a GitHub issue, where the issue is both the
   - Before the `yes` prompt, print `Issue #<n>: <title> (by @<author>, <k> of <m> comments included)` and the criteria.
   - Lock: source `issue`, method `issue`, ratifier `github:<Viewer login>` (the person confirming, not necessarily the author), base ref `gitx.BaseRef`, `review_duration_ms` from the prompt to the answer.
   - Exit codes: 0 written; 1 not confirmed or drafting error; 2 usage, no terminal, no token, not an issue, no repo; 3 any API or network error, scan failure, git failure.
+- Review 1 amendments (binding):
+  - The token only travels over TLS to `BaseURL`'s host: `BaseURL` must be `https://`, except a loopback host (`127.0.0.1`, `::1`, `localhost`) for tests; the client follows no redirects (`CheckRedirect` returns an error naming the status and target host, never the token); a `Link` next URL must match `BaseURL`'s scheme and host exactly.
+  - `Link` parsing follows RFC 8288: `rel` may be quoted or not and may hold several space-separated relation types; any containing `next` is followed.
+  - Plans are masked too, on every path (`--issue`, `--from-plan`, and the S-04 hook): the plan text goes through `ratify.Mask` before `ratify.DraftCriteria`, so criterion text and footprints in the committed lock, and everything printed, never contain an unmasked secret. Tests: a secret inside the `intentgate` block's `text` appears in none of stdout, the lock file, or the root intent record, for all three paths.
+  - Comment selection: a comment is included only if both its author and the issue's author are non-empty and equal ignoring case (ghost/null users never match); "<k> of <m> comments included" counts only parts actually included.
+  - Remote host matching is case-insensitive (`GitHub.com`).
+  - Tests use `t.Setenv`, and one test exercises the `gh auth token` fallback through an injected command.
 - Fetch before confirming, write only after `yes`; a failure at any step writes nothing.
 - Dependencies: none new.
 

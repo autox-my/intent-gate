@@ -87,7 +87,7 @@ It's recorded, not judged. A very short review is a signal for the audit trail, 
 
 ## 5. Secret scan (REQ-0015)
 
-Before the root intent is written anywhere or sent to the plan-review model:
+Before the root intent is written anywhere or sent to the plan-review model (and, the same way, the plan text before criteria are drafted from it, since criterion text is committed in the lock):
 
 - Scan it with **gitleaks' detection library** (Go, importable; one of ADR 0001's reasons).
 - Replace each finding with `[REDACTED:<rule-id>]`, and record the count in the lock as `root_intent.redactions: <n>` (counted in the hash).
