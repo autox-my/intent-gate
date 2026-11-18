@@ -33,6 +33,12 @@ The CLI ways to ratify: create a lock from a plan file after an interactive conf
 - Typed amendment in `internal/lock` (replaces `map[string]any`):
   `{revision: int ≥ 2, kind: add-glob | reratify, criterion: Cn (add-glob only), glob: string (add-glob only), by: string, at: RFC 3339 UTC with Z, method: hook | cli-confirm | issue}`. Unknown keys rejected. Validation: revisions are 2, 3, … in order and the last equals the lock's `revision` (or there are none and `revision` is 1); `criterion` exists; `glob` passes the footprint rules and is in that criterion's footprint. Update `schema/intentgate.lock.v1.json` to match, and keep the S-01 golden hash (no amendments → unchanged).
 - Confirmation gate: a `Deps.IsTerminal(fd)` check on stdin and stdout (real one: `os.File.Stat` and `ModeCharDevice`, no new dependency). Not both terminals → exit 2 with "intentgate lock needs an interactive terminal; ratification is a human act" (`amend` says "intentgate amend …"). There is no `--yes` flag, and no environment variable that skips it.
+- Review 1 amendments (binding):
+  - The terminal check is a real TTY check, not `ModeCharDevice`: `unix.IoctlGetTermios` (`golang.org/x/sys/unix`, already in `go.sum`; `TIOCGETA` on darwin/BSD, `TCGETS` on linux) succeeds on both fds. `/dev/null` is not a terminal. A built-binary test runs `lock` and `amend` with stdin and stdout on `/dev/null` and on pipes and asserts exit 2 and the terminal message.
+  - `--reratify` shows the current `ratified_at` as the old value and says the new one is the time of confirmation; it never prints the old time as the new one.
+  - `Store.Amend` also refuses unless `new.Amendments` is `old.Amendments` unchanged (deep-equal) plus exactly one appended entry whose `revision` is `new.Revision`.
+  - A pasted root intent is the pasted lines, each ending in `\n` (so it equals a `--prompt` file with the same lines and a final newline).
+  - The REQ-0030 round-trip test splits the fix command with a real POSIX shell (`/bin/sh`), not a hand-written splitter, and covers a path with `'`, one with `[`/`{` metacharacters, and one with a backslash.
 - Exit codes (core-contracts.md §3): 0 written; 1 not confirmed, or a drafting error ("no lock: …"); 2 usage or no terminal; 3 the scan failed, git can't resolve the base, or the lock to amend is invalid or fails its hash. The hook keeps its own exit-0 rule (S-04).
 - Dependencies: none new.
 
@@ -65,6 +71,7 @@ scripts/check.sh   # run from the worktree root; must end "verdict: GREEN"
 - `cmd/intentgate/**`
 - `internal/lock/**`, `internal/ratify/**` (only `Store.Amend` and its tests in ratify)
 - `schema/intentgate.lock.v1.json`
+- `go.mod`, `go.sum` (only to make `golang.org/x/sys` a direct dependency)
 - `claims/REQ-0004.yml`, `claims/REQ-0005.yml`, `claims/REQ-0014.yml`, `claims/REQ-0030.yml`: the `tests:` key only.
 
 ## Forbidden
