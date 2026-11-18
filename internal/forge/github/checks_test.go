@@ -204,6 +204,123 @@ func TestClient_ChecksAndComments(t *testing.T) {
 		}
 	})
 
+	t.Run("a comment is cut to 65000 bytes on a UTF-8 boundary with a final truncation line, on create and on update", func(t *testing.T) {
+		const limit = 65000
+		const tail = "\n… (truncated; the check run has the full summary)"
+		cases := map[string]string{
+			"two-byte runes (the cut falls inside one)": strings.Repeat("é", 40000),
+			"three-byte runes":                          strings.Repeat("€", 30000),
+			"four-byte runes":                           strings.Repeat("😀", 20000),
+			"ascii":                                     strings.Repeat("a", limit+1),
+		}
+		for name, body := range cases {
+			r := newRecorder(t)
+			var got []seen
+			capture(r, "/repos/o/r/issues/5/comments", 201, `{"id":11}`, &got)
+			capture(r, "/repos/o/r/issues/comments/11", 200, `{"id":11}`, &got)
+			if _, err := r.client().CreateComment(ctx, "o", "r", 5, body); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if err := r.client().UpdateComment(ctx, "o", "r", 11, body); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if len(got) != 2 {
+				t.Fatalf("%s: %d requests, want 2", name, len(got))
+			}
+			for _, g := range got {
+				sent, _ := g.body["body"].(string)
+				if len(sent) > limit || !utf8.ValidString(sent) || !strings.HasSuffix(sent, tail) {
+					t.Errorf("%s %s: sent %d bytes, valid UTF-8 %v, suffix %v", name, g.method, len(sent), utf8.ValidString(sent), strings.HasSuffix(sent, tail))
+				}
+				if len(sent) < limit-3-len(tail) {
+					t.Errorf("%s %s: cut too much: %d bytes", name, g.method, len(sent))
+				}
+			}
+		}
+		r := newRecorder(t)
+		var got []seen
+		capture(r, "/repos/o/r/issues/5/comments", 201, `{"id":11}`, &got)
+		exact := strings.Repeat("a", limit)
+		if _, err := r.client().CreateComment(ctx, "o", "r", 5, exact); err != nil {
+			t.Fatal(err)
+		}
+		if sent, _ := got[0].body["body"].(string); sent != exact {
+			t.Errorf("a comment of exactly %d bytes was changed (%d bytes sent)", limit, len(sent))
+		}
+	})
+
+	t.Run("FindComments returns every matching comment, oldest id first", func(t *testing.T) {
+		r := newRecorder(t)
+		r.routes["/repos/o/r/issues/5/comments"] = func(w http.ResponseWriter, req *http.Request) {
+			next := func(p int) {
+				w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/issues/5/comments?per_page=100&page=%d>; rel="next"`, r.srv.URL, p))
+			}
+			switch req.URL.Query().Get("page") {
+			case "":
+				next(2)
+				fmt.Fprintf(w, `[{"id":9,"body":%q,"user":{"login":"github-actions[bot]"}},{"id":2,"body":%q,"user":{"login":"mallory"}}]`, marker+"\nnew", marker+"\nforged")
+			case "2":
+				next(3)
+				fmt.Fprintf(w, `[{"id":3,"body":%q,"user":{"login":"github-actions[bot]"}},{"id":8,"body":null,"user":null}]`, "see "+marker)
+			default:
+				fmt.Fprintf(w, `[{"id":4,"body":%q,"user":{"login":"GitHub-Actions[bot]"}}]`, marker+"\nold")
+			}
+		}
+		ids, err := r.client().FindComments(ctx, "o", "r", 5, marker, "github-actions[bot]")
+		if err != nil || len(ids) != 2 || ids[0] != 4 || ids[1] != 9 {
+			t.Fatalf("FindComments = %v, %v; want [4 9], nil", ids, err)
+		}
+		if ids, err := r.client().FindComments(ctx, "o", "r", 5, marker, ""); err != nil || len(ids) != 0 {
+			t.Errorf("with no author: %v, %v; want none", ids, err)
+		}
+	})
+
+	t.Run("DeleteComment sends DELETE for the id and accepts an empty 204", func(t *testing.T) {
+		r := newRecorder(t)
+		var got []seen
+		capture(r, "/repos/o/r/issues/comments/11", 204, ``, &got)
+		if err := r.client().DeleteComment(ctx, "o", "r", 11); err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].method != "DELETE" || got[0].path != "/repos/o/r/issues/comments/11" {
+			t.Errorf("requests = %+v, want one DELETE of comment 11", got)
+		}
+	})
+
+	t.Run("DeleteComment names the status and message on failure, never the token", func(t *testing.T) {
+		r := newRecorder(t)
+		r.routes["/repos/o/r/issues/comments/11"] = func(w http.ResponseWriter, req *http.Request) {
+			w.WriteHeader(403)
+			fmt.Fprint(w, `{"message":"Forbidden `+req.Header.Get("Authorization")+`"}`)
+		}
+		err := r.client().DeleteComment(ctx, "o", "r", 11)
+		if err == nil || !strings.Contains(err.Error(), "403") || strings.Contains(err.Error(), secretToken) {
+			t.Fatalf("err = %v, want 403 without the token", err)
+		}
+	})
+
+	t.Run("an empty 2xx is success for PATCH, and POST still needs the created id", func(t *testing.T) {
+		r := newRecorder(t)
+		var got []seen
+		capture(r, "/repos/o/r/issues/comments/11", 200, ``, &got)
+		capture(r, "/repos/o/r/check-runs/77", 204, ``, &got)
+		capture(r, "/repos/o/r/issues/5/comments", 201, ``, &got)
+		capture(r, "/repos/o/r/check-runs", 201, ``, &got)
+		c := r.client()
+		if err := c.UpdateComment(ctx, "o", "r", 11, "x"); err != nil {
+			t.Errorf("UpdateComment with an empty 200: %v", err)
+		}
+		if err := c.UpdateCheckRun(ctx, "o", "r", 77, CheckRun{Name: "IntentGate", Conclusion: "neutral", Title: "T", Summary: "S"}); err != nil {
+			t.Errorf("UpdateCheckRun with an empty 204: %v", err)
+		}
+		if id, err := c.CreateComment(ctx, "o", "r", 5, "x"); err == nil {
+			t.Errorf("CreateComment with an empty 201 = %d, nil; want an error (no id)", id)
+		}
+		if id, err := c.CreateCheckRun(ctx, "o", "r", CheckRun{Name: "IntentGate", HeadSHA: "s", Conclusion: "neutral", Title: "T", Summary: "S"}); err == nil {
+			t.Errorf("CreateCheckRun with an empty 201 = %d, nil; want an error (no id)", id)
+		}
+	})
+
 	t.Run("a write that fails names the status and GitHub's message, never the token", func(t *testing.T) {
 		r := newRecorder(t)
 		r.routes["/repos/o/r/check-runs"] = func(w http.ResponseWriter, req *http.Request) {

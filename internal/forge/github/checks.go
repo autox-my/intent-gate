@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -153,4 +154,14 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, pr int, 
 func (c *Client) UpdateComment(ctx context.Context, owner, repo string, id int64, body string) error {
 	target := fmt.Sprintf("/repos/%s/%s/issues/comments/%d", url.PathEscape(owner), url.PathEscape(repo), id)
 	return c.send(ctx, "PATCH", target, map[string]string{"body": body}, &struct{}{})
+}
+
+// FindComments is FindComment returning every match, oldest id first. (stub)
+func (c *Client) FindComments(ctx context.Context, owner, repo string, pr int, marker, author string) ([]int64, error) {
+	return nil, errors.New("not implemented")
+}
+
+// DeleteComment is DELETE /repos/{o}/{r}/issues/comments/{id}. (stub)
+func (c *Client) DeleteComment(ctx context.Context, owner, repo string, id int64) error {
+	return errors.New("not implemented")
 }
