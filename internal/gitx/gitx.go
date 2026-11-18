@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // run runs git in dir and returns its trimmed standard output.
@@ -69,3 +70,19 @@ func BaseRef(dir string) (string, error) {
 	}
 	return "", errors.New("cannot tell the base branch: set INTENTGATE_BASE_REF")
 }
+
+// Change is one entry of `git diff --name-status`: Status is git's raw status (a letter, plus a
+// similarity score for renames and copies, such as "R100"); OldPath is set for those two only.
+type Change struct {
+	Status        string
+	Path, OldPath string
+}
+
+// ChangedFiles is a compile-only stub until the green commit.
+func ChangedFiles(dir, base, head string) ([]Change, error) { return nil, nil }
+
+// ShowFile is a compile-only stub until the green commit.
+func ShowFile(dir, rev, path string) ([]byte, bool, error) { return nil, false, nil }
+
+// CommitTime is a compile-only stub until the green commit.
+func CommitTime(dir, rev string) (time.Time, error) { return time.Time{}, nil }

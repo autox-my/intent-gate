@@ -72,6 +72,8 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 			return runLock(args[1:], stdin, stdout, deps)
 		case "amend":
 			return runAmend(args[1:], stdin, stdout, deps)
+		case "verify":
+			return runVerify(args[1:], stdout, deps)
 		}
 	}
 	if len(args) < 3 || args[0] != "hook" || args[1] != "claude-code" {

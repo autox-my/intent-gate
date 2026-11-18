@@ -10,6 +10,9 @@ import (
 	"time"
 )
 
+// version is IntentGate's version, set with -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	dir, _ := os.Getwd()
 	os.Exit(Run(os.Args[1:], os.Stdin, os.Stdout, Deps{
