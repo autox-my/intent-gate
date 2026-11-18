@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -183,4 +184,172 @@ func TestClient(t *testing.T) {
 			t.Errorf("error %v: want an error without the token", err)
 		}
 	})
+}
+
+// fakeNet is an http.RoundTripper that serves canned responses by URL and records every request it
+// is asked to send, so a test can assert that the token never went anywhere it should not.
+type fakeNet struct {
+	mu    sync.Mutex
+	reqs  []*http.Request
+	serve func(r *http.Request) *http.Response
+}
+
+func (f *fakeNet) RoundTrip(r *http.Request) (*http.Response, error) {
+	f.mu.Lock()
+	f.reqs = append(f.reqs, r)
+	f.mu.Unlock()
+	return f.serve(r), nil
+}
+
+func (f *fakeNet) urls() []string {
+	var u []string
+	for _, r := range f.reqs {
+		u = append(u, r.URL.String())
+	}
+	return u
+}
+
+func reply(status int, header http.Header, body string) *http.Response {
+	if header == nil {
+		header = http.Header{}
+	}
+	return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}
+}
+
+// TestClient_TokenOnlyOverTLS: the token only travels over TLS to BaseURL's host.
+func TestClient_TokenOnlyOverTLS(t *testing.T) {
+	ctx := context.Background()
+	const base = "https://api.example.test"
+
+	noToken := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("want an error, got nil")
+		}
+		if strings.Contains(err.Error(), secretToken) {
+			t.Errorf("the error carries the token: %v", err)
+		}
+	}
+	noTokenSent := func(t *testing.T, f *fakeNet, notTo ...string) {
+		t.Helper()
+		for _, r := range f.reqs {
+			for _, bad := range notTo {
+				if r.URL.String() == bad || strings.HasPrefix(r.URL.String(), bad) {
+					t.Errorf("a request went to %s with Authorization %q", r.URL, r.Header.Get("Authorization"))
+				}
+			}
+		}
+	}
+
+	t.Run("a redirect to http on the same host is not followed", func(t *testing.T) {
+		f := &fakeNet{serve: func(r *http.Request) *http.Response {
+			if r.URL.Scheme == "https" {
+				return reply(302, http.Header{"Location": {"http://api.example.test/repos/o/r/issues/7"}}, "")
+			}
+			return reply(200, nil, `{"number":7}`)
+		}}
+		_, err := (&Client{BaseURL: base, Token: secretToken, HTTP: &http.Client{Transport: f}}).Issue(ctx, "o", "r", 7)
+		noToken(t, err)
+		if !strings.Contains(err.Error(), "302") || !strings.Contains(err.Error(), "api.example.test") {
+			t.Errorf("error %q should name the status and the target host", err)
+		}
+		noTokenSent(t, f, "http://")
+		if len(f.reqs) != 1 {
+			t.Errorf("%d requests %v, want 1", len(f.reqs), f.urls())
+		}
+	})
+
+	t.Run("a redirect to another host is not followed", func(t *testing.T) {
+		f := &fakeNet{serve: func(r *http.Request) *http.Response {
+			if r.URL.Host == "api.example.test" {
+				return reply(301, http.Header{"Location": {"https://evil.example.test/steal"}}, "")
+			}
+			return reply(200, nil, `{"number":7}`)
+		}}
+		_, err := (&Client{BaseURL: base, Token: secretToken, HTTP: &http.Client{Transport: f}}).Issue(ctx, "o", "r", 7)
+		noToken(t, err)
+		if !strings.Contains(err.Error(), "evil.example.test") {
+			t.Errorf("error %q should name the target host", err)
+		}
+		noTokenSent(t, f, "https://evil.example.test")
+	})
+
+	t.Run("the default client follows no redirects either (TLS server)", func(t *testing.T) {
+		var hits int
+		var other *httptest.Server
+		other = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+		defer other.Close()
+		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+		}))
+		defer srv.Close()
+		_, err := (&Client{BaseURL: srv.URL, Token: secretToken, HTTP: srv.Client()}).Issue(ctx, "o", "r", 7)
+		noToken(t, err)
+		if hits != 0 {
+			t.Errorf("the redirect target was requested %d times", hits)
+		}
+	})
+
+	pages := func(link string) *fakeNet {
+		return &fakeNet{serve: func(r *http.Request) *http.Response {
+			if r.URL.Path == "/repos/o/r/issues/7/comments" && r.URL.Query().Get("page") == "" {
+				return reply(200, http.Header{"Link": {link}}, `[{"body":"one","user":{"login":"a"}}]`)
+			}
+			return reply(200, nil, `[{"body":"two","user":{"login":"a"}}]`)
+		}}
+	}
+
+	t.Run("a Link next to http on the same host is refused", func(t *testing.T) {
+		f := pages(`<http://api.example.test/repos/o/r/issues/7/comments?page=2>; rel="next"`)
+		_, err := (&Client{BaseURL: base, Token: secretToken, HTTP: &http.Client{Transport: f}}).Comments(ctx, "o", "r", 7)
+		noToken(t, err)
+		noTokenSent(t, f, "http://")
+	})
+
+	t.Run("a Link next to another host is refused", func(t *testing.T) {
+		f := pages(`<https://evil.example.test/repos/o/r/issues/7/comments?page=2>; rel="next"`)
+		_, err := (&Client{BaseURL: base, Token: secretToken, HTTP: &http.Client{Transport: f}}).Comments(ctx, "o", "r", 7)
+		noToken(t, err)
+		noTokenSent(t, f, "https://evil.example.test")
+	})
+
+	t.Run("a Link next on the same scheme and host is followed", func(t *testing.T) {
+		f := pages(`<https://api.example.test/repos/o/r/issues/7/comments?page=2>; rel="next"`)
+		got, err := (&Client{BaseURL: base, Token: secretToken, HTTP: &http.Client{Transport: f}}).Comments(ctx, "o", "r", 7)
+		if err != nil || len(got) != 2 {
+			t.Errorf("comments = %+v, %v; want 2", got, err)
+		}
+	})
+
+	for _, bad := range []string{
+		"http://api.example.test",       // plain http to a real host
+		"http://api.example.test:80",    // the same, with a port
+		"ftp://api.example.test",        // not http at all
+		"http://127.0.0.1.example.test", // a name that only starts like a loopback address
+		"http://user:pw@127.0.0.1",      // credentials in the URL
+		"api.example.test",              // no scheme
+	} {
+		t.Run("BaseURL "+bad+" is refused before any request", func(t *testing.T) {
+			f := &fakeNet{serve: func(r *http.Request) *http.Response { return reply(200, nil, `{"number":7,"login":"x"}`) }}
+			c := &Client{BaseURL: bad, Token: secretToken, HTTP: &http.Client{Transport: f}}
+			_, e1 := c.Issue(ctx, "o", "r", 7)
+			_, e2 := c.Comments(ctx, "o", "r", 7)
+			_, e3 := c.Viewer(ctx)
+			for _, err := range []error{e1, e2, e3} {
+				noToken(t, err)
+			}
+			if len(f.reqs) != 0 {
+				t.Errorf("requests were made: %v", f.urls())
+			}
+		})
+	}
+
+	for _, ok := range []string{"https://api.github.com", "https://ghe.example.test/api/v3", "http://127.0.0.1:8080", "http://localhost:8080", "http://[::1]:8080", "https://127.0.0.1:8443"} {
+		t.Run("BaseURL "+ok+" is allowed", func(t *testing.T) {
+			f := &fakeNet{serve: func(r *http.Request) *http.Response { return reply(200, nil, `{"login":"x"}`) }}
+			if _, err := (&Client{BaseURL: ok, Token: secretToken, HTTP: &http.Client{Transport: f}}).Viewer(ctx); err != nil {
+				t.Errorf("Viewer: %v", err)
+			}
+		})
+	}
 }
