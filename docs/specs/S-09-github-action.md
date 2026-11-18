@@ -37,6 +37,14 @@ Supporting (already linked in the core, don't re-link): REQ-0033/0038 (comment m
   4. `github/codeql-action/upload-sarif` pinned by full commit SHA, with `category: intentgate`, only if `results.sarif` exists and the decision says `publish`; `continue-on-error: true`.
   - No `${{ … }}` expression appears inside any `run:` script; every value reaches the script through `env:`. The job never fails because of IntentGate (Phase 0 is advisory).
   - `action/README.md`: the workflow snippet (`on: pull_request`, `fetch-depth: 0` checkout, permissions `contents: read`, `checks: write`, `pull-requests: write`, `security-events: write`), and the fork-PR caveat.
+- Review 1 amendments (binding):
+  - `pull_request` only. `pull_request_target` is not supported (ADR 0005): every step after setup is guarded by `if: github.event_name == 'pull_request'`, and any other event gets a single warning step "IntentGate supports pull_request only" and does nothing else. This removes the code-from-PR-with-a-write-token path and the pull_request + pull_request_target double run.
+  - Input `bot-login` (default `github-actions[bot]`) passed as `--bot-login`; README says to set it when `token` is a PAT or another App's token.
+  - Fork PRs and every run: `summary.md` is appended to `$GITHUB_STEP_SUMMARY`, and the out dir (`verify.json`, `results.sarif`, `summary.md`, `comment.md`, `decision.json`) is uploaded with `actions/upload-artifact` pinned by full SHA (name `intentgate`, `if-no-files-found: ignore`, `continue-on-error: true`), as ADR 0005 requires.
+  - README's workflow snippet sets `concurrency: { group: intentgate-${{ github.event.pull_request.number }}, cancel-in-progress: true }`; the README says one check run and one comment are guaranteed only with it. After creating a comment, `publish` lists again and, if more than one bot comment starts with the marker, keeps the oldest (lowest id), updates it, and deletes the others (`DELETE …/issues/comments/{id}`), so a race converges to one comment.
+  - The comment body is cut to 65 000 bytes on a UTF-8 boundary with a final line "… (truncated; the check run has the full summary)".
+  - `decision.json`: `conclusion` must be `success` or `neutral` when `publish` is true, else exit 3.
+  - A 2xx with an empty body is success for PATCH and DELETE; POST still needs the created id.
 - Dependencies: none new.
 
 ## Tests first (committed red)

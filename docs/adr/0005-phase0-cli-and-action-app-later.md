@@ -15,5 +15,6 @@ v2 plans a GitHub App for the hosted path. An App needs hosting, a webhook endpo
 
 - Nothing to host or keep available in Phase 0. An outage of IntentGate can't block a merge, because the check is advisory and not required.
 - The Action needs `checks: write`, `pull-requests: write` and `security-events: write` permissions in the workflow.
-- Workflows triggered from forks get a read-only `GITHUB_TOKEN`. For fork PRs, Phase 0 writes the result to the job summary and the SARIF artifact only. Supporting `pull_request_target` safely is deferred.
+- Workflows triggered from forks get a read-only `GITHUB_TOKEN`. For fork PRs, Phase 0 writes the result to the job summary and the SARIF artifact only. Supporting `pull_request_target` safely is deferred; the Action refuses it.
+- Until the release pipeline exists, the Action builds the binary from its own source at the pinned Action ref (S-09); switching to the checksummed release download is a later slice.
 - GitLab and other forges work through the CLI, with no forge-specific output, until demand justifies an adapter.
