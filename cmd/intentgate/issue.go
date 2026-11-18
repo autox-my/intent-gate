@@ -29,9 +29,9 @@ const (
 var (
 	repoArg = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	// git@github.com:owner/name(.git)
-	scpRemote = regexp.MustCompile(`^(?:[\w.-]+@)?github\.com:([^/\s]+)/([^/\s]+?)(?:\.git)?/?$`)
+	scpRemote = regexp.MustCompile(`(?i)^(?:[\w.-]+@)?github\.com:([^/\s]+)/([^/\s]+?)(?:\.git)?/?$`)
 	// https://github.com/owner/name(.git), ssh://git@github.com/owner/name(.git)
-	urlRemote = regexp.MustCompile(`^(?:https?|ssh|git)://(?:[^@/\s]+@)?github\.com(?::\d+)?/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$`)
+	urlRemote = regexp.MustCompile(`(?i)^(?:https?|ssh|git)://(?:[^@/\s]+@)?github\.com(?::\d+)?/([^/\s]+)/([^/\s]+?)(?:\.git)?/?$`)
 )
 
 func validRepo(s string) bool { return repoArg.MatchString(s) }
@@ -88,25 +88,33 @@ func githubToken(deps Deps) string {
 	return ""
 }
 
+// sameAuthor reports whether a comment's author is the issue's author: both non-empty and equal
+// ignoring case. A deleted account (no user, or GitHub's placeholder "ghost") is nobody in
+// particular, so it never matches, not even another deleted account.
+func sameAuthor(comment, issue string) bool {
+	known := func(s string) bool { return s != "" && !strings.EqualFold(s, "ghost") }
+	return known(comment) && known(issue) && strings.EqualFold(comment, issue)
+}
+
 // issueText is the issue body, then each comment by the issue's author in API order, joined with
 // a rule; each part ends in a newline and an empty part is left out. It is both the root intent and
-// the plan.
+// the plan. included counts the comment parts that are in the text.
 func issueText(is github.Issue, comments []github.Comment) (text string, included int) {
 	var parts []string
-	add := func(s string) {
+	add := func(s string) bool {
 		if strings.TrimSpace(s) == "" {
-			return
+			return false
 		}
 		if !strings.HasSuffix(s, "\n") {
 			s += "\n"
 		}
 		parts = append(parts, s)
+		return true
 	}
 	add(is.Body)
 	for _, c := range comments {
-		if strings.EqualFold(c.Author, is.Author) {
+		if sameAuthor(c.Author, is.Author) && add(c.Body) {
 			included++
-			add(c.Body)
 		}
 	}
 	return strings.Join(parts, partSep), included
@@ -170,7 +178,7 @@ func runLockIssue(t *term, n int, repoFlag string) int {
 	return t.confirmAndWrite(pending{
 		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: text,
 		Source: "issue", Method: "issue", Ratifier: "github:" + viewer,
-		Intro: fmt.Sprintf("Issue #%d: %s (by @%s, %d of %d comments included)", n, issue.Title, issue.Author, included, len(comments)),
+		Intro: fmt.Sprintf("Issue #%d: %s (by @%s, %d of %d comments included)", n, issue.Title, shownAuthor(issue.Author), included, len(comments)),
 	})
 }
 
@@ -180,4 +188,12 @@ func splitRepo(s string) (owner, name string, ok bool) {
 	}
 	owner, name, ok = strings.Cut(s, "/")
 	return owner, name, ok
+}
+
+// shownAuthor is the author as printed: a deleted account has no login, so it shows as ghost.
+func shownAuthor(login string) string {
+	if login == "" {
+		return "ghost"
+	}
+	return login
 }
