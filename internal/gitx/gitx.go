@@ -287,10 +287,13 @@ type LockAddition struct {
 	Time   time.Time // the commit's committer time, UTC
 }
 
-// LockAdditions lists the lock files (.intent/<name>.yml) that the first-parent history of rev
-// added, each with the commit that added it and that commit's committer time. A merge commit counts
-// for the locks its side branch brought in, at the merge commit's own time. A file that was removed
-// and added again is listed once, at its newest addition. The list is newest first, then by path.
+// LockAdditions lists the lock files (.intent/<name>.yml) at the tip of the first-parent history of
+// rev, each with the commit that added it and that commit's committer time. A merge commit counts
+// for the locks its side branch brought in, at the merge commit's own time. A rename inside
+// .intent/ carries the original addition to the new path, so a moved lock is never new; a file moved
+// into .intent/ from elsewhere is added by the move. A file that was removed and added again is
+// listed once, at its newest addition. A path that no longer exists at rev may still be listed:
+// the caller reads the file. The list is newest first, then by path.
 func LockAdditions(dir, rev string) ([]LockAddition, error) {
 	if err := checkRev(rev); err != nil {
 		return nil, err
@@ -299,40 +302,66 @@ func LockAdditions(dir, rev string) ([]LockAddition, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := r.run("log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--diff-filter=A",
-		"--name-only", "--no-ext-diff", "--no-textconv", "--format=%H%x00%ct", "-z", rev, "--", ".intent/")
+	out, err := r.run("log", "--first-parent", "--diff-merges=first-parent", "--find-renames", "--diff-filter=AR", "--reverse",
+		"--name-status", "--no-ext-diff", "--no-textconv", "--format=%H%x00%ct", "-z", rev, "--", ".intent/")
 	if err != nil {
 		return nil, err
 	}
-	// Per commit: <hash> NUL <ct> NUL LF <path> NUL <path> NUL ... A path always starts with
-	// ".intent/", which a hash never does, so a header is told from a path by that prefix.
+	// Oldest commit first. Per commit: <hash> NUL <ct> NUL LF then, per file, <status> NUL <path> NUL
+	// (a rename has <status> NUL <old> NUL <new> NUL). A status is A or R and digits, which a hash,
+	// a time or (being consumed in place) a path cannot be mistaken for.
 	toks := strings.Split(string(out), "\x00")
-	adds := []LockAddition{}
-	seen := map[string]bool{}
+	cur := map[string]LockAddition{}
 	var commit string
 	var when time.Time
+	next := func(i int) (string, bool) {
+		if i >= len(toks) {
+			return "", false
+		}
+		return toks[i], true
+	}
 	for i := 0; i < len(toks); i++ {
 		tok := strings.TrimPrefix(toks[i], "\n")
 		switch {
 		case tok == "":
-		case strings.HasPrefix(tok, ".intent/"):
-			if commit == "" {
+		case tok[0] == 'A' && strings.Trim(tok[1:], "0123456789") == "":
+			p, ok := next(i + 1)
+			if !ok || commit == "" {
 				return nil, fmt.Errorf("git log: cannot parse the output near %q", tok)
 			}
-			if name := strings.TrimPrefix(tok, ".intent/"); strings.HasSuffix(name, ".yml") && !strings.Contains(name, "/") && !seen[tok] {
-				seen[tok] = true
-				adds = append(adds, LockAddition{Path: tok, Commit: commit, Time: when})
+			cur[p] = LockAddition{Path: p, Commit: commit, Time: when}
+			i++
+		case tok[0] == 'R' && strings.Trim(tok[1:], "0123456789") == "":
+			from, ok1 := next(i + 1)
+			to, ok2 := next(i + 2)
+			if !ok1 || !ok2 || commit == "" {
+				return nil, fmt.Errorf("git log: cannot parse the output near %q", tok)
 			}
+			add, tracked := cur[from]
+			if !tracked {
+				add = LockAddition{Commit: commit, Time: when} // moved in from outside .intent/
+			}
+			delete(cur, from)
+			add.Path = to
+			cur[to] = add
+			i += 2
 		default:
-			if i+1 >= len(toks) {
+			secs, ok := next(i + 1)
+			if !ok {
 				return nil, fmt.Errorf("git log: cannot parse the output near %q", tok)
 			}
-			secs, err := strconv.ParseInt(toks[i+1], 10, 64)
+			n, err := strconv.ParseInt(secs, 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("git log: cannot read the commit time of %s: %w", tok, err)
 			}
-			commit, when = tok, time.Unix(secs, 0).UTC()
+			commit, when = tok, time.Unix(n, 0).UTC()
 			i++
+		}
+	}
+	adds := []LockAddition{}
+	for p, a := range cur {
+		if name, ok := strings.CutPrefix(p, ".intent/"); ok && strings.HasSuffix(name, ".yml") && !strings.Contains(name, "/") {
+			adds = append(adds, a)
 		}
 	}
 	sort.SliceStable(adds, func(i, j int) bool {
