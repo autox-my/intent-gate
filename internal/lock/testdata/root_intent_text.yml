@@ -1,0 +1,19 @@
+schema: intentgate.lock/1
+id: 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 9f2c4a7b1d3e5f60718293a4b5c6d7e8f9011223344556677889900aabbccdde
+  source: claude-code-session
+  text: "Add SARIF output to the report package."
+criteria:
+  - id: C1
+    text: "Footprint findings are published as SARIF."
+    footprint:
+      - "internal/report/**"
+ratification:
+  ratifier: "github:octocat"
+  ratified_at: 2026-11-18T09:14:03Z
+  method: hook
+amendments: []
+hash: sha256:0000

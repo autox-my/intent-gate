@@ -1,0 +1,25 @@
+schema: intentgate.lock/1
+id: 01JD8Z6Q4M7R2T9X3B5N8K1C6F
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 9f2c4a7b1d3e5f60718293a4b5c6d7e8f9011223344556677889900aabbccdde
+  source: claude-code-session
+criteria:
+  - id: C1
+    text: "Footprint findings are published as SARIF."
+    footprint:
+      - "internal/report/**"
+      - "!internal/report/legacy/**"
+  - id: C2
+    text: "The report package has golden tests."
+    footprint:
+      - "internal/report/testdata/**"
+ratification:
+  ratifier: "github:octocat"
+  ratified_at: 2026-11-18T09:14:03Z
+  method: hook
+  review_duration_ms: 48210
+  drafted_by: "claude-code/claude-opus-5-5"
+amendments: []
+hash: sha256:0000000000000000000000000000000000000000000000000000000000000000

@@ -1,0 +1,21 @@
+# Same lock as valid.yml: keys reordered, flow style, different quoting and whitespace.
+hash: "sha256:ffff"
+amendments: [ ]
+ratification: {method: "hook", drafted_by: 'claude-code/claude-opus-5-5', review_duration_ms: 48210,
+    ratified_at: "2026-11-18T09:14:03Z", ratifier: github:octocat}
+criteria:
+    -   footprint: [ "internal/report/**", '!internal/report/legacy/**' ]
+        text: 'Footprint findings are published as SARIF.'
+        id: "C1"
+
+    -   text: The report package has golden tests.
+        id: C2
+        footprint:
+        - internal/report/testdata/**
+root_intent:
+    source: claude-code-session
+    sha256: "9f2c4a7b1d3e5f60718293a4b5c6d7e8f9011223344556677889900aabbccdde"
+base_ref: "main"
+revision: 1
+id: "01JD8Z6Q4M7R2T9X3B5N8K1C6F"
+schema: intentgate.lock/1
