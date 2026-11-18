@@ -82,6 +82,11 @@ func TestDraftCriteria(t *testing.T) {
 		{"missing text", block("intentgate", "criteria:\n  - footprint: [\"a/**\"]\n")},
 		{"blank text", block("intentgate", "criteria:\n  - text: \"  \"\n    footprint: [\"a/**\"]\n")},
 		{"invalid footprint glob", block("intentgate", "criteria:\n  - text: x\n    footprint: [\"src/[a-\"]\n")},
+		{"a number as a footprint item", block("intentgate", "criteria:\n  - text: x\n    footprint: [1]\n")},
+		{"a number as the text", block("intentgate", "criteria:\n  - text: 1\n    footprint: [\"a/**\"]\n")},
+		{"a bool as the text", block("intentgate", "criteria:\n  - text: true\n    footprint: [\"a/**\"]\n")},
+		{"a list as the text", block("intentgate", "criteria:\n  - text: [a]\n    footprint: [\"a/**\"]\n")},
+		{"a null footprint item", block("intentgate", "criteria:\n  - text: x\n    footprint: [null]\n")},
 		{"invalid YAML", block("intentgate", "criteria: [unclosed\n")},
 		{"two YAML documents", block("intentgate", twoCriteria+"---\n"+twoCriteria)},
 	} {

@@ -23,14 +23,29 @@ type draftBlock struct {
 	Criteria []draftCriterion `yaml:"criteria"`
 }
 
+// draftCriterion keeps the YAML nodes, not strings: yaml.v3 would turn `text: 1` or `footprint: [1]`
+// into "1", and a criterion is only what the author wrote as text.
 type draftCriterion struct {
-	Text      string   `yaml:"text"`
-	Footprint []string `yaml:"footprint"`
+	Text      yaml.Node   `yaml:"text"`
+	Footprint []yaml.Node `yaml:"footprint"`
+}
+
+// str returns the string a node holds. An absent node is "" (the lock's validation reports it); a
+// number, bool, null, list or map is an error.
+func str(n yaml.Node) (string, bool) {
+	if n.Kind == 0 {
+		return "", true
+	}
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
+		return "", false
+	}
+	return n.Value, true
 }
 
 // DraftCriteria reads the plan's one ```intentgate block and returns its criteria with ids C1…Cn
 // (ratification.md §1.1). A missing or repeated block, invalid YAML, an unknown key, no criteria,
-// more than lock.MaxCriteria criteria or an invalid footprint is an error starting "no lock: ";
+// more than lock.MaxCriteria criteria, a text or footprint item that isn't a string, or an invalid
+// footprint is an error starting "no lock: ";
 // nothing is truncated or repaired.
 func DraftCriteria(plan string) ([]lock.Criterion, error) {
 	blocks := fencedBlocks(plan, infoString)
@@ -62,7 +77,20 @@ func DraftCriteria(plan string) ([]lock.Criterion, error) {
 	}
 	cs := make([]lock.Criterion, n)
 	for i, c := range b.Criteria {
-		cs[i] = lock.Criterion{ID: fmt.Sprintf("C%d", i+1), Text: c.Text, Footprint: c.Footprint}
+		id := fmt.Sprintf("C%d", i+1)
+		text, ok := str(c.Text)
+		if !ok {
+			return nil, fail("%s: text must be a string", id)
+		}
+		var fp []string
+		for _, item := range c.Footprint {
+			g, ok := str(item)
+			if !ok || item.Kind == 0 {
+				return nil, fail("%s: every footprint item must be a string", id)
+			}
+			fp = append(fp, g)
+		}
+		cs[i] = lock.Criterion{ID: id, Text: text, Footprint: fp}
 	}
 	// The same rules as the lock's own validation; keep only the findings about the criteria.
 	for _, p := range lock.Validate(lock.Lock{Criteria: cs}) {
