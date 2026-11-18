@@ -175,7 +175,7 @@ func runLockIssue(t *term, n int, repoFlag string) int {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
 	return t.confirmAndWrite(pending{
-		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: text,
+		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: text, Plan: criteriaAsPlan(criteria), // no plan file: the drafted criteria are what the review weighs against the issue
 		Source: "issue", Method: "issue", Ratifier: "github:" + viewer,
 		Intro: fmt.Sprintf("Issue #%d: %s (by @%s, %d of %d comments included)", n, issue.Title, shownAuthor(issue.Author), included, len(comments)),
 	})

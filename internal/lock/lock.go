@@ -221,6 +221,7 @@ func Validate(l Lock) []Problem {
 		add("ratification.review_duration_ms", "must be an integer of at least 0, got %d", *r.ReviewDurationMS)
 	}
 
+	validatePlanReview(l.PlanReview, add)
 	validateAmendments(l, add)
 
 	sort.SliceStable(ps, func(i, j int) bool {
@@ -230,6 +231,31 @@ func Validate(l Lock) []Problem {
 		return ps[i].Message < ps[j].Message
 	})
 	return ps
+}
+
+// planReviewStatuses is the enum of plan_review.status (plan-review.md §3, §4).
+var planReviewStatuses = []string{"complete", "partial", "unavailable", "error"}
+
+// validatePlanReview checks the optional plan_review record: a status from the enum and all
+// three counts present and at least 0. Absent is fine.
+func validatePlanReview(p *PlanReview, add func(path, format string, args ...any)) {
+	if p == nil {
+		return
+	}
+	if !contains(planReviewStatuses, p.Status) {
+		add("plan_review.status", "must be one of %s, got %q", strings.Join(planReviewStatuses, ", "), p.Status)
+	}
+	for _, c := range []struct {
+		name string
+		n    *int
+	}{{"omissions", p.Omissions}, {"additions", p.Additions}, {"weakenings", p.Weakenings}} {
+		switch {
+		case c.n == nil:
+			add("plan_review."+c.name, "is required when plan_review is present")
+		case *c.n < 0:
+			add("plan_review."+c.name, "must be an integer of at least 0, got %d", *c.n)
+		}
+	}
 }
 
 // validateAmendments checks the amendment history: revisions are 2, 3, … in order and end at the

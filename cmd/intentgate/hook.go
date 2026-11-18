@@ -17,6 +17,7 @@ import (
 	"intentgate/internal/gitx"
 	"intentgate/internal/hooks/claudecode"
 	"intentgate/internal/ids"
+	"intentgate/internal/lock"
 	"intentgate/internal/planreview"
 	"intentgate/internal/ratify"
 )
@@ -181,8 +182,9 @@ func runHook(which string, stdin io.Reader, deps Deps) claudecode.Output {
 // pendingRecord is what PreToolUse saves: when the criteria were shown, and a hash of the plan.
 // It holds no root intent text.
 type pendingRecord struct {
-	FinishedAt string `json:"finished_at"`
-	PlanSHA256 string `json:"plan_sha256"`
+	FinishedAt string           `json:"finished_at"`
+	PlanSHA256 string           `json:"plan_sha256"`
+	PlanReview *lock.PlanReview `json:"plan_review,omitempty"` // status and counts only, no text
 }
 
 func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
@@ -190,10 +192,12 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	if err != nil {
 		return claudecode.Output{}, err
 	}
+	res := hookPlanReview(in, in.ToolInput.Plan, deps) // bounded by the budget; never fails the hook
 	sum := sha256.Sum256([]byte(in.ToolInput.Plan))
 	data, err := json.Marshal(pendingRecord{
 		FinishedAt: deps.Now().UTC().Format(time.RFC3339Nano),
 		PlanSHA256: hex.EncodeToString(sum[:]),
+		PlanReview: planReviewRecord(res),
 	})
 	if err != nil {
 		return claudecode.Output{}, err
@@ -209,13 +213,14 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	for _, c := range criteria {
 		fmt.Fprintf(&b, "\n- %s: %s (footprint: %s)", c.ID, c.Text, strings.Join(c.Footprint, ", "))
 	}
+	b.WriteString("\n" + strings.TrimRight(planreview.Display(res), "\n"))
 	return claudecode.Output{SystemMessage: b.String()}, nil
 }
 
 func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
 	now := deps.Now()
 	// No pending record, no lock: post only counts as an approval after pre showed the criteria.
-	shownAt, ok := readPending(recPath)
+	rec, shownAt, ok := readPendingRecord(recPath)
 	if !ok {
 		return claudecode.Output{}, errors.New("no pending record; was the plan shown by the PreToolUse hook?")
 	}
@@ -262,6 +267,10 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	if ms := now.Sub(shownAt).Milliseconds(); ms > 0 {
 		durationMS = int(ms)
 	}
+	var planReview *lock.PlanReview // none if the record predates the plan review or is malformed
+	if usablePlanReview(rec.PlanReview) {
+		planReview = rec.PlanReview
+	}
 	l, masked, err := ratify.MaskAndBuild(nil, rootIntent, ratify.BuildInput{
 		ID:               id,
 		BaseRef:          baseRef,
@@ -272,6 +281,7 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 		Method:           "hook",
 		ReviewDurationMS: durationMS,
 		DraftedBy:        draftedBy,
+		PlanReview:       planReview,
 	})
 	if err != nil {
 		return claudecode.Output{}, err
@@ -305,18 +315,25 @@ func pendingPath(pending string, in claudecode.Input) (string, error) {
 	return filepath.Join(pending, in.SessionID, in.ToolUseID+".json"), nil
 }
 
-// readPending returns the time the criteria were shown; false if there is no usable record.
-func readPending(path string) (time.Time, bool) {
+// readPendingRecord returns the record and the time the criteria were shown; false if there is
+// no usable record.
+func readPendingRecord(path string) (pendingRecord, time.Time, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return time.Time{}, false
+		return pendingRecord{}, time.Time{}, false
 	}
 	var rec pendingRecord
 	if json.Unmarshal(data, &rec) != nil {
-		return time.Time{}, false
+		return pendingRecord{}, time.Time{}, false
 	}
 	t, err := time.Parse(time.RFC3339Nano, rec.FinishedAt)
-	return t, err == nil
+	return rec, t, err == nil
+}
+
+// readPending returns the time the criteria were shown; false if there is no usable record.
+func readPending(path string) (time.Time, bool) {
+	_, t, ok := readPendingRecord(path)
+	return t, ok
 }
 
 // writeFileAtomic writes data (mode 0600) to a temp file next to path and renames it into place,

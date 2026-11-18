@@ -61,6 +61,18 @@
         "drafted_by": { "type": "string" }
       }
     },
+    "plan_review": {
+      "description": "The advisory plan review's outcome at ratification: the status and the three counts, never finding text (REQ-0014). Optional: locks made before the plan review have none. When present all four keys are required.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "omissions", "additions", "weakenings"],
+      "properties": {
+        "status": { "enum": ["complete", "partial", "unavailable", "error"] },
+        "omissions": { "type": "integer", "minimum": 0 },
+        "additions": { "type": "integer", "minimum": 0 },
+        "weakenings": { "type": "integer", "minimum": 0 }
+      }
+    },
     "amendments": {
       "description": "One entry per revision after the first: revisions are 2, 3, … in order and the last equals the lock's revision (checked by the Go validation). An add-glob names a criterion and a glob that is in that criterion's footprint; a reratify names neither.",
       "type": "array",

@@ -14,6 +14,7 @@ import (
 	"intentgate/internal/audit"
 	"intentgate/internal/ids"
 	"intentgate/internal/lock"
+	"intentgate/internal/planreview"
 	"intentgate/internal/ratify"
 )
 
@@ -171,7 +172,7 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
 	return t.confirmAndWrite(pending{
-		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent,
+		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent, Plan: string(plan),
 		Source: "plan-file", Method: "cli-confirm", Ratifier: "git:" + email,
 	})
 }
@@ -203,6 +204,7 @@ type pending struct {
 	Top, BaseRef string
 	Criteria     []lock.Criterion
 	RootIntent   string
+	Plan         string // the text the criteria were drafted from; what the plan review compares with RootIntent
 	Source       string // root_intent.source
 	Method       string // ratification.method
 	Ratifier     string
@@ -218,6 +220,10 @@ func (t *term) confirmAndWrite(p pending) int {
 	}
 	fmt.Fprintf(t.out, "Criteria to lock (base %s):\n", p.BaseRef)
 	showCriteria(t.out, p.Criteria)
+	// The advisory plan review runs here, before the prompt, within its budget; whatever it
+	// does, the lock goes on (REQ-0020). review_duration_ms starts at the prompt, after it.
+	res := runPlanReview(deps, p.RootIntent, p.Plan)
+	fmt.Fprint(t.out, planreview.Display(res))
 	yes, shown, answered := t.confirm("Type yes to lock these criteria:")
 	if !yes {
 		return t.fail(exitNotConfirmed, "intentgate lock: not confirmed; nothing written")
@@ -236,6 +242,7 @@ func (t *term) confirmAndWrite(p pending) int {
 		RatifiedAt:       answered,
 		Method:           p.Method,
 		ReviewDurationMS: reviewMS(shown, answered),
+		PlanReview:       planReviewRecord(res),
 	})
 	if err != nil {
 		code := exitNotConfirmed
@@ -268,6 +275,15 @@ func (t *term) pasteRootIntent() (string, error) {
 		b.WriteString(line)
 		b.WriteByte('\n') // each pasted line ends in a newline, like the same lines in a --prompt file
 	}
+}
+
+// criteriaAsPlan renders drafted criteria as the plan text for `lock --issue`, which has no plan file.
+func criteriaAsPlan(criteria []lock.Criterion) string {
+	var b strings.Builder
+	for _, c := range criteria {
+		fmt.Fprintf(&b, "- %s: %s (footprint: %s)\n", c.ID, c.Text, strings.Join(c.Footprint, ", "))
+	}
+	return b.String()
 }
 
 func showCriteria(w io.Writer, criteria []lock.Criterion) {

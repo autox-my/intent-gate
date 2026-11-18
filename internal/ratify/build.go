@@ -56,6 +56,10 @@ func Build(in BuildInput) (lock.Lock, error) {
 		},
 		Amendments: []lock.Amendment{},
 	}
+	if pr := in.PlanReview; pr != nil {
+		cp := lock.PlanReview{Status: pr.Status, Omissions: copyInt(pr.Omissions), Additions: copyInt(pr.Additions), Weakenings: copyInt(pr.Weakenings)}
+		l.PlanReview = &cp
+	}
 	if in.DraftedBy != "" {
 		d := in.DraftedBy
 		l.Ratification.DraftedBy = &d
@@ -73,6 +77,14 @@ func Build(in BuildInput) (lock.Lock, error) {
 	}
 	l.Hash = h
 	return l, nil
+}
+
+func copyInt(p *int) *int {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // MaskAndBuild is the way to get a Lock from a raw root intent: it scans rawRootIntent first with

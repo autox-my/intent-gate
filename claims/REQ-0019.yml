@@ -15,3 +15,5 @@ pins:
   value: "5"
   operator: LE
   unit: s
+tests:
+  - "intentgate/internal/planreview::TestRun_Budget"
