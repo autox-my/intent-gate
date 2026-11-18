@@ -285,11 +285,14 @@ func (t *term) pasteRootIntent() (string, error) {
 	}
 }
 
-// criteriaAsPlan renders drafted criteria as the plan text for `lock --issue`, which has no plan file.
+// criteriaAsPlan renders drafted criteria as the plan text for `lock --issue`, which has no plan
+// file: the criterion texts only, one per line, without ids or footprints. The texts come from
+// masked drafting, so the result is masked.
 func criteriaAsPlan(criteria []lock.Criterion) string {
 	var b strings.Builder
 	for _, c := range criteria {
-		fmt.Fprintf(&b, "- %s: %s (footprint: %s)\n", c.ID, c.Text, strings.Join(c.Footprint, ", "))
+		b.WriteString(c.Text)
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
