@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -79,25 +80,97 @@ type Change struct {
 	Path, OldPath string
 }
 
-// runRaw runs git -C dir with a fixed set of options that keep user configuration out of the
-// output, and returns its standard output unchanged.
-func runRaw(dir string, args ...string) ([]byte, error) {
-	full := append([]string{
-		"--no-pager", "-C", dir,
-		"-c", "core.quotepath=false", "-c", "diff.renames=true", "-c", "color.ui=false",
-	}, args...)
-	cmd := exec.Command("git", full...)
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
+// rawEnv is the whole environment of a raw git call: a fresh one, never the caller's. Nothing else
+// passes through, so GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_COUNT/KEY_n/VALUE_n,
+// GIT_EXTERNAL_DIFF, the user's and the system's git configuration have no effect on the output.
+func rawEnv() []string {
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"LC_ALL=C",
+		"TZ=UTC",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_OPTIONAL_LOCKS=0",
+	}
+}
+
+// rawConfig pins, on the command line, the repository-local settings that change what git prints
+// (the repository's own config cannot be switched off).
+func rawConfig(safeDirectory string) []string {
+	var args []string
+	for _, kv := range []string{
+		"safe.directory=" + safeDirectory, // a CI checkout owned by another user
+		"core.quotepath=false",
+		"color.ui=false",
+		"diff.renames=true",
+		"diff.relative=false",
+		"diff.noprefix=false",
+		"diff.mnemonicPrefix=false",
+		"diff.renameLimit=65535",
+		"core.ignoreCase=false",
+	} {
+		args = append(args, "-c", kv)
+	}
+	return args
+}
+
+// gitName is the git command of an argument list, for error messages: its first non-option word.
+func gitName(args []string) string {
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			return a
+		}
+	}
+	return args[0]
+}
+
+// execRaw runs git in the fresh environment with -C at dir, pinned config and the arguments, and
+// returns its standard output unchanged.
+func execRaw(dir, safeDirectory string, args ...string) ([]byte, error) {
+	full := append([]string{"--no-pager", "-C", dir}, rawConfig(safeDirectory)...)
+	cmd := exec.Command("git", append(full, args...)...)
+	cmd.Env = rawEnv()
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(errb.String()); msg != "" {
-			return nil, fmt.Errorf("git %s: %s", args[0], msg)
+			return nil, fmt.Errorf("git %s: %s", gitName(args), msg)
 		}
-		return nil, fmt.Errorf("git %s: %w", args[0], err)
+		return nil, fmt.Errorf("git %s: %w", gitName(args), err)
 	}
 	return out.Bytes(), nil
 }
+
+// rawTopLevel resolves the top level of the working tree that contains dir, in the fresh
+// environment. Only this call runs with safe.directory=*: it prints a path and reads no content, and
+// the top level is not known before it.
+func rawTopLevel(dir string) (string, error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	out, err := execRaw(abs, "*", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	top := strings.TrimRight(string(out), "\n")
+	if top == "" {
+		return "", errors.New("git rev-parse --show-toplevel printed nothing")
+	}
+	return top, nil
+}
+
+// repo runs git at the top level of the repository that contains dir, however dir is spelled and
+// whatever directory the caller is in.
+type repo struct{ top string }
+
+func openRepo(dir string) (repo, error) {
+	top, err := rawTopLevel(dir)
+	return repo{top}, err
+}
+
+func (r repo) run(args ...string) ([]byte, error) { return execRaw(r.top, r.top, args...) }
 
 // checkRev refuses a rev that git would read as an option.
 func checkRev(rev string) error {
@@ -116,7 +189,11 @@ func ChangedFiles(dir, base, head string) ([]Change, error) {
 	if err := checkRev(head); err != nil {
 		return nil, err
 	}
-	out, err := runRaw(dir, "diff", "--name-status", "-z", "--no-ext-diff", "--find-renames", "--find-copies", base+"..."+head, "--")
+	r, err := openRepo(dir)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.run("diff", "--name-status", "-z", "--no-relative", "--no-ext-diff", "--no-textconv", "--find-renames", "--find-copies", base+"..."+head, "--")
 	if err != nil {
 		return nil, err
 	}
@@ -152,18 +229,25 @@ func ShowFile(dir, rev, path string) (data []byte, found bool, err error) {
 	if err := checkRev(rev); err != nil {
 		return nil, false, err
 	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return nil, false, err
+	}
 	// ls-tree tells "no such path" (empty output) from "no such rev" (an error)
-	out, err := runRaw(dir, "--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", path)
+	out, err := r.run("--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", path)
 	if err != nil {
 		return nil, false, err
 	}
 	if len(out) == 0 {
 		return nil, false, nil
 	}
+	if bytes.HasPrefix(out, []byte("120000 ")) {
+		return nil, false, fmt.Errorf("%s is a symlink in %s; commit the file itself", path, rev)
+	}
 	if !bytes.HasPrefix(out, []byte("100")) || !bytes.Contains(out, []byte(" blob ")) {
 		return nil, false, fmt.Errorf("git ls-tree: %s in %s is not a regular file", path, rev)
 	}
-	data, err = runRaw(dir, "cat-file", "blob", rev+":"+path)
+	data, err = r.run("cat-file", "blob", rev+":"+path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -178,7 +262,11 @@ func CommitTime(dir, rev string) (time.Time, error) {
 	if err := checkRev(rev); err != nil {
 		return time.Time{}, err
 	}
-	out, err := runRaw(dir, "show", "-s", "--format=%ct", rev+"^{commit}", "--")
+	r, err := openRepo(dir)
+	if err != nil {
+		return time.Time{}, err
+	}
+	out, err := r.run("show", "-s", "--format=%ct", rev+"^{commit}", "--")
 	if err != nil {
 		return time.Time{}, err
 	}
