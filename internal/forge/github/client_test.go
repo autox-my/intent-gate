@@ -353,3 +353,54 @@ func TestClient_TokenOnlyOverTLS(t *testing.T) {
 		})
 	}
 }
+
+// TestNextLink: Link parsing follows RFC 8288: rel may be quoted or not and may hold several
+// space-separated relation types; any containing next is followed.
+func TestNextLink(t *testing.T) {
+	const u = "https://api.example.test/c?page=2"
+	for _, tc := range []struct{ name, header, want string }{
+		{"quoted", `<` + u + `>; rel="next"`, u},
+		{"unquoted token", `<` + u + `>; rel=next`, u},
+		{"unquoted, other relations first", `<https://api.example.test/c?page=1>; rel=prev, <` + u + `>; rel=next`, u},
+		{"several relation types, quoted", `<` + u + `>; rel="next last"`, u},
+		{"several relation types, next later", `<` + u + `>; rel="prefetch next"`, u},
+		{"relation types are case-insensitive", `<` + u + `>; REL="NEXT"`, u},
+		{"extra whitespace around the parts", `  < ` + u + ` >  ;  rel = "next"  `, u},
+		{"other params before and after rel", `<` + u + `>; title="a, b"; rel=next; type="x"`, u},
+		{"a comma inside a quoted param", `<https://api.example.test/c?page=1>; title="x, <https://evil.example.test/>; rel=next", <` + u + `>; rel="next"`, u},
+		{"a comma inside the target", `<https://api.example.test/c?a=1,2>; rel=prev, <` + u + `>; rel=next`, u},
+		{"a relation type that only contains next", `<` + u + `>; rel="nextish"`, ""},
+		{"rel=prev", `<` + u + `>; rel="prev"`, ""},
+		{"no rel", `<` + u + `>; title="next"`, ""},
+		{"only the first rel counts (RFC 8288 §3.3)", `<` + u + `>; rel="last"; rel="next"`, ""},
+		{"empty header", ``, ""},
+		{"garbage", `rel="next"`, ""},
+		{"unterminated target", `<` + u + `; rel="next"`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := nextLink(tc.header); got != tc.want {
+				t.Errorf("nextLink(%q) = %q, want %q", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestClient_CommentsFollowUnquotedMultiValuedLink(t *testing.T) {
+	r := newRecorder(t)
+	r.routes["/c"] = func(w http.ResponseWriter, req *http.Request) {
+		if req.URL.Query().Get("page") == "" {
+			w.Header().Set("Link", fmt.Sprintf(`<%s/c?page=2>; rel=next last`, r.srv.URL))
+			fmt.Fprint(w, `[{"body":"one","user":{"login":"a"}}]`)
+			return
+		}
+		fmt.Fprint(w, `[{"body":"two","user":{"login":"a"}}]`)
+	}
+	r.routes["/repos/o/r/issues/7/comments"] = func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Link", fmt.Sprintf(`<%s/c>; rel=next`, r.srv.URL))
+		fmt.Fprint(w, `[{"body":"zero","user":{"login":"a"}}]`)
+	}
+	got, err := r.client().Comments(context.Background(), "o", "r", 7)
+	if want := []Comment{{"a", "zero"}, {"a", "one"}, {"a", "two"}}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("comments = %+v, %v; want %+v", got, err, want)
+	}
+}
