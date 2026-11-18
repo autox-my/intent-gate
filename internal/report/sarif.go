@@ -50,19 +50,44 @@ type sarifResult struct {
 type sarifLocation struct {
 	PhysicalLocation struct {
 		ArtifactLocation struct {
-			URI string `json:"uri"`
+			URI       string `json:"uri"`
+			URIBaseID string `json:"uriBaseId"`
 		} `json:"artifactLocation"`
 	} `json:"physicalLocation"`
 }
 
+// uriBaseID is the base every artifact uri is relative to: the repository root.
+const uriBaseID = "%SRCROOT%"
+
+// encodePath percent-encodes a repo-relative path for a SARIF uri: each segment per RFC 3986 (only
+// unreserved characters stay as they are, so a ":" in the first segment can't read as a scheme),
+// the "/" separators kept.
+func encodePath(p string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c == '/', c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '.', c == '_', c == '~':
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&15])
+		}
+	}
+	return b.String()
+}
+
 // SARIF renders the footprint findings as SARIF 2.1.0 (REQ-0036): one run, one result per finding
-// in path order, located at the file with no region. version is IntentGate's version, supplied by
+// in path order, located at the file (percent-encoded, relative to %SRCROOT%) with no region. version is IntentGate's version, supplied by
 // the caller.
 func SARIF(r verify.Result, version string) []byte {
 	results := make([]sarifResult, 0, len(r.Findings))
 	for _, f := range sortedFindings(r.Findings) {
 		var loc sarifLocation
-		loc.PhysicalLocation.ArtifactLocation.URI = f.Path
+		loc.PhysicalLocation.ArtifactLocation.URI = encodePath(f.Path)
+		loc.PhysicalLocation.ArtifactLocation.URIBaseID = uriBaseID
 		results = append(results, sarifResult{
 			RuleID:    RuleID,
 			Level:     "warning",

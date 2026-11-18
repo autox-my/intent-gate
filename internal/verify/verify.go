@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"intentgate/internal/footprint"
@@ -218,8 +219,8 @@ func checkLock(in Input, f LockFile) (LockResult, lock.Lock, bool) {
 	return lr, l, true
 }
 
-// inputProblems lists what is wrong with the input as a whole, sorted: two lock file entries for
-// one path.
+// inputProblems lists what is wrong with the input as a whole, sorted, once each: two lock file
+// entries for one path, and a changed path that is absolute or has an empty, "." or ".." segment.
 func inputProblems(in Input) []string {
 	seen := make(map[string]bool, len(in.LockFiles))
 	var problems []string
@@ -229,8 +230,32 @@ func inputProblems(in Input) []string {
 		}
 		seen[f.Path] = true
 	}
+	for _, c := range in.Changed {
+		for _, p := range []string{c.Path, c.OldPath} {
+			if p != c.Path && p == "" { // an empty OldPath only says "not a rename"
+				continue
+			}
+			if !safePath(p) {
+				problems = append(problems, fmt.Sprintf("unsafe changed path %q", p))
+			}
+		}
+	}
 	sort.Strings(problems)
 	return dedupe(problems)
+}
+
+// safePath reports whether p is a repo-relative path made of non-empty segments other than "."
+// and "..".
+func safePath(p string) bool {
+	if p == "" || strings.HasPrefix(p, "/") {
+		return false
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // dedupe drops repeats from a sorted list.

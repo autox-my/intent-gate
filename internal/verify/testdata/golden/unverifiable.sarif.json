@@ -28,7 +28,8 @@
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "docs/readme.md"
+                  "uri": "docs/readme.md",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }

@@ -28,7 +28,8 @@
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "cmd/new/main.go"
+                  "uri": "cmd/new/main.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
@@ -44,7 +45,8 @@
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "internal/gitx/diff.go"
+                  "uri": "internal/gitx/diff.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
@@ -60,7 +62,8 @@
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "pkg/a.go"
+                  "uri": "pkg/a.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
@@ -76,7 +79,8 @@
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "pkg/b.go"
+                  "uri": "pkg/b.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
