@@ -360,8 +360,10 @@ func TestImplicit_GeneratedVendored(t *testing.T) {
 		{"no slash matches at any depth", "*.pb.txt linguist-generated", "a/b/x.pb.txt", true},
 		{"no slash matches at the root", "*.pb.txt linguist-generated", "x.pb.txt", true},
 		{"no slash name at any depth", "gen.txt linguist-generated", "a/b/gen.txt", true},
-		{"trailing slash matches at any depth", "generated/ linguist-generated", "x/generated/a.go", true},
-		{"trailing slash matches at the root", "generated/ linguist-generated", "generated/a.go", true},
+		{"trailing slash matches nothing at any depth", "generated/ linguist-generated", "x/generated/a.go", false},
+		{"trailing slash matches nothing at the root", "generated/ linguist-generated", "generated/a.go", false},
+		{"trailing slash with a slash inside matches nothing", "src/gen/ linguist-vendored", "src/gen/a.go", false},
+		{"trailing slash does not unmark", "gen/** linguist-generated\ngen/ -linguist-generated", "gen/a.go", true},
 		{"trailing slash does not match a file", "generated/ linguist-generated", "x/generated", false},
 		{"slash in the middle anchors", "docs/gen/*.md linguist-generated", "docs/gen/a.md", true},
 		{"anchored does not match deeper prefix", "docs/gen/*.md linguist-generated", "other/docs/gen/a.md", false},
@@ -380,6 +382,14 @@ func TestImplicit_GeneratedVendored(t *testing.T) {
 		{"no trailing newline", "gen/** linguist-generated", "gen/a.go", true},
 		{"empty file", "", "gen/a.go", false},
 	}
+	t.Run("trailing slash dist/ is reported once the dist default is removed", func(t *testing.T) {
+		cfg := mustConfig(t, "version: 1\nimplicit_footprints:\n  remove: [\"**/dist/**\"]\n")
+		imp := mustImplicit(t, cfg, "dist/ linguist-generated")
+		if !reported(t, "dist/bundle.js", nil, imp) {
+			t.Error("dist/bundle.js: a trailing-slash pattern matches nothing, but it was not reported")
+		}
+	})
+
 	for _, c := range attrCases {
 		t.Run(c.name, func(t *testing.T) {
 			imp := mustImplicit(t, mustConfig(t, ""), c.attrs)

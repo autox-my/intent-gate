@@ -20,15 +20,12 @@ const (
 // attrRule is one .gitattributes line that mentions linguist-generated or linguist-vendored.
 type attrRule struct {
 	glob              string // root-anchored glob
-	dirOnly           bool   // pattern had a trailing slash: matches what is under the directory
+	never             bool   // pattern had a trailing slash: gitattributes(5) says it matches nothing
 	generated, vendor attrState
 }
 
 func (r attrRule) matches(path string) bool {
-	if r.dirOnly {
-		return matches(r.glob+"/**/*", path)
-	}
-	return matches(r.glob, path)
+	return !r.never && matches(r.glob, path)
 }
 
 // parseGitattributes reads the rules that matter to the footprint check. Blank lines, `#` comments
@@ -90,7 +87,7 @@ func newAttrRule(pattern string) (attrRule, error) {
 	r := attrRule{}
 	p := pattern
 	if strings.HasSuffix(p, "/") {
-		r.dirOnly = true
+		r.never = true
 		p = strings.TrimSuffix(p, "/")
 	}
 	if p == "" || p == "/" {
