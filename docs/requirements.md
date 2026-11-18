@@ -41,7 +41,7 @@ Scope: Phase 0 of `docs/intent-gate-proposal-v2.md` §7, cut by the adoption-fir
 
 - The PR check shall mark an intent lock suspect when the pull request base branch is retargeted.
 - The PR check shall treat an intent lock as valid for no more than 14 days.
-- The PR check shall mark the criteria suspect when the pull request diff modifies a file under `.intent/`.
+- The PR check shall mark the criteria suspect when an intent lock's content does not match its recorded hash.
 
 ### Footprint check
 

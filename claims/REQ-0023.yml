@@ -3,7 +3,7 @@
 # applicability and relations it needs, and pin a load-bearing bound under `pins:` if it has one.
 schema: req.claim/2
 claim_id: REQ-0023
-statement: "The PR check shall mark the criteria suspect when the pull request diff modifies a file under .intent/."
+statement: "The PR check shall mark the criteria suspect when an intent lock's content does not match its recorded hash."
 applicability: []
 rationale:
   source: "docs/requirements.md#L44"

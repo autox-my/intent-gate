@@ -1,0 +1,125 @@
+schema: req.satisfied/1
+links:
+- element: docs/design/audit-metrics.md
+  claim_id: REQ-0041
+  statement: The PR check shall record the footprint-amendment rate.
+- element: docs/design/audit-metrics.md
+  claim_id: REQ-0042
+  statement: The PR check shall record the ratification method of each intent lock in the audit log.
+- element: docs/design/core-contracts.md
+  claim_id: REQ-0040
+  statement: The verify command shall produce identical output for identical inputs.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0024
+  statement: The footprint check shall report each changed file that lies outside the footprint of every criterion.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0025
+  statement: The footprint check shall treat a test file paired with a module inside a footprint as inside that footprint.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0026
+  statement: The footprint check shall treat test fixtures and snapshots as inside the footprint.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0027
+  statement: The footprint check shall treat lockfiles as inside the footprint.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0028
+  statement: The footprint check shall treat generated and vendored files as inside the footprint.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0029
+  statement: The footprint check shall read its implicit footprints from .intentgate.yml.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0030
+  statement: The footprint check shall offer a one-step footprint amendment for each flagged file.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0031
+  statement: The footprint check shall not call a model.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0006
+  statement: The intent lock shall store the root intent verbatim.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0007
+  statement: The intent lock shall contain no more than 8 criteria.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0008
+  statement: Each criterion shall declare its footprint as path globs.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0009
+  statement: The intent lock shall record the ratifier identity.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0010
+  statement: The intent lock shall record the ratification time.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0011
+  statement: The intent lock shall record the ratification method.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0012
+  statement: The intent lock shall record the review duration of the ratification.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0014
+  statement: The committed lock file shall not contain the root intent.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0022
+  statement: The PR check shall treat an intent lock as valid for no more than 14 days.
+- element: docs/design/plan-review.md
+  claim_id: REQ-0016
+  statement: The plan review shall report what the root intent asks for that the plan omits.
+- element: docs/design/plan-review.md
+  claim_id: REQ-0017
+  statement: The plan review shall report what the plan adds that the root intent does not ask for.
+- element: docs/design/plan-review.md
+  claim_id: REQ-0018
+  statement: The plan review shall report where the plan weakens an obligation of the root intent.
+- element: docs/design/plan-review.md
+  claim_id: REQ-0019
+  statement: The plan review shall complete within 5 s.
+- element: docs/design/plan-review.md
+  claim_id: REQ-0020
+  statement: The plan review shall not block ratification.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0021
+  statement: The PR check shall mark an intent lock suspect when the pull request base branch is retargeted.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0023
+  statement: The PR check shall mark the criteria suspect when an intent lock's content does not match its recorded hash.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0032
+  statement: The PR check shall not derive criteria from the pull request description.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0033
+  statement: The PR check shall post no comment on a pull request that has no intent lock.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0034
+  statement: The PR check shall skip pull requests authored by dependency-update bots.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0035
+  statement: The PR check shall publish its result as one check run.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0036
+  statement: The PR check shall publish its footprint findings as SARIF.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0037
+  statement: The PR check shall post no more than 1 comment per pull request.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0038
+  statement: The PR check shall post no comment when every check passes.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0039
+  statement: The PR check shall conclude its check run as success or neutral in advisory mode.
+- element: docs/design/ratification.md
+  claim_id: REQ-0002
+  statement: The plan-approval hook shall create an intent lock when a human approves an agent plan.
+- element: docs/design/ratification.md
+  claim_id: REQ-0003
+  statement: The lock command shall create an intent lock from an issue.
+- element: docs/design/ratification.md
+  claim_id: REQ-0004
+  statement: The lock command shall create an intent lock from a plan file.
+- element: docs/design/ratification.md
+  claim_id: REQ-0005
+  statement: The lock command shall create an intent lock only after an interactive human confirmation.
+- element: docs/design/ratification.md
+  claim_id: REQ-0013
+  statement: The intent lock shall carry a hash over its root intent, criteria, footprints and ratification record.
+- element: docs/design/ratification.md
+  claim_id: REQ-0015
+  statement: The lock command shall scan the root intent for secrets before it writes the intent lock.
