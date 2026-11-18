@@ -13,3 +13,4 @@ rationale:
 relations: []
 tests:
   - "intentgate/internal/verify::TestGolden_Deterministic"
+  - "intentgate/cmd/intentgate::TestVerify_Deterministic"

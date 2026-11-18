@@ -283,7 +283,8 @@ func TestVerify_CleanAndFindings(t *testing.T) {
 	})
 
 	t.Run(".gitattributes and the config are read at head", func(t *testing.T) {
-		_, data := mkLock(t, lockA, "main", ratifiedOK, srcOnly)
+		// the .gitattributes file is itself a changed file, so the footprint names it
+		_, data := mkLock(t, lockA, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**", ".gitattributes"))
 		onFeature := func(t *testing.T, files map[string]string) *vrepo {
 			r := newVRepo(t)
 			r.feature()

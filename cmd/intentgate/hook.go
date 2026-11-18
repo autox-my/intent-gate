@@ -59,10 +59,10 @@ type Deps struct {
 const (
 	exitPlanMode = "ExitPlanMode"
 	pendingTTL   = 24 * time.Hour
-	usage        = "usage: intentgate hook claude-code pre|post|print-config\n" + lockUsage + amendUsage
+	usage        = "usage: intentgate hook claude-code pre|post|print-config\n" + lockUsage + amendUsage + verifyUsage
 )
 
-// Run executes the intentgate command line (hook, lock, amend) and returns the exit code. `hook claude-code pre|post`
+// Run executes the intentgate command line (hook, lock, amend, verify) and returns the exit code. `hook claude-code pre|post`
 // fail open: they always exit 0 and print exactly one JSON object (ratification.md §2), even on a
 // bad command line. Every other usage error exits 2 with usage on stderr (core-contracts.md §3).
 func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
@@ -72,6 +72,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 			return runLock(args[1:], stdin, stdout, deps)
 		case "amend":
 			return runAmend(args[1:], stdin, stdout, deps)
+		case "--version":
+			if len(args) == 1 {
+				_, _ = io.WriteString(stdout, "intentgate "+version+"\n")
+				return 0
+			}
 		case "verify":
 			return runVerify(args[1:], stdout, deps)
 		}
