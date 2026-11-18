@@ -55,6 +55,9 @@ links:
   claim_id: REQ-0012
   statement: The intent lock shall record the review duration of the ratification.
 - element: docs/design/intent-lock.md
+  claim_id: REQ-0013
+  statement: The intent lock shall carry a hash over its root intent, criteria, footprints and ratification record.
+- element: docs/design/intent-lock.md
   claim_id: REQ-0014
   statement: The committed lock file shall not contain the root intent.
 - element: docs/design/intent-lock.md
@@ -117,6 +120,9 @@ links:
 - element: docs/design/ratification.md
   claim_id: REQ-0005
   statement: The lock command shall create an intent lock only after an interactive human confirmation.
+- element: docs/design/ratification.md
+  claim_id: REQ-0012
+  statement: The intent lock shall record the review duration of the ratification.
 - element: docs/design/ratification.md
   claim_id: REQ-0013
   statement: The intent lock shall carry a hash over its root intent, criteria, footprints and ratification record.
