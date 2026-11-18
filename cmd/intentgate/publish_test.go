@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"intentgate/internal/report"
 )
@@ -49,11 +50,15 @@ type pubAPI struct {
 	pageSize int    // comments per page; 0 means all on one page
 	status   int    // when not 0, every call answers this status
 	message  string // the error message served with status
+
+	postAs      string // the login a created comment gets: the token's owner
+	race        bool   // the next comment POST is preceded by a racing run's own comment
+	emptyWrites bool   // PATCH answers 200 with no body
 }
 
 func newPubAPI(t *testing.T) *pubAPI {
 	t.Helper()
-	f := &pubAPI{nextID: 100, pageSize: 2}
+	f := &pubAPI{nextID: 100, pageSize: 2, postAs: pubBot}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	t.Setenv("GITHUB_API_URL", f.srv.URL)
@@ -105,7 +110,9 @@ func (f *pubAPI) serve(w http.ResponseWriter, r *http.Request) {
 		for i := range f.runs {
 			if f.runs[i].ID == id {
 				f.runs[i].Conclusion, f.runs[i].Title, f.runs[i].Sum = body.Conclusion, body.Output.Title, body.Output.Summary
-				fmt.Fprintf(w, `{"id":%d}`, id)
+				if !f.emptyWrites {
+					fmt.Fprintf(w, `{"id":%d}`, id)
+				}
 				return
 			}
 		}
@@ -135,8 +142,13 @@ func (f *pubAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, "[%s]", strings.Join(items, ","))
 	case r.Method == "POST" && p == pre+"/issues/7/comments":
+		if f.race { // another run created its comment between our listing and our POST
+			f.race = false
+			f.nextID++
+			f.comments = append(f.comments, fakeComment{f.nextID, report.CommentMarker + "\nthe racing run's comment", f.postAs})
+		}
 		f.nextID++
-		f.comments = append(f.comments, fakeComment{f.nextID, body.Body, pubBot})
+		f.comments = append(f.comments, fakeComment{f.nextID, body.Body, f.postAs})
 		w.WriteHeader(201)
 		fmt.Fprintf(w, `{"id":%d}`, f.nextID)
 	case r.Method == "PATCH" && strings.HasPrefix(p, pre+"/issues/comments/"):
@@ -144,7 +156,19 @@ func (f *pubAPI) serve(w http.ResponseWriter, r *http.Request) {
 		for i := range f.comments {
 			if f.comments[i].ID == id {
 				f.comments[i].Body = body.Body
-				fmt.Fprintf(w, `{"id":%d}`, id)
+				if !f.emptyWrites {
+					fmt.Fprintf(w, `{"id":%d}`, id)
+				}
+				return
+			}
+		}
+		http.NotFound(w, r)
+	case r.Method == "DELETE" && strings.HasPrefix(p, pre+"/issues/comments/"):
+		id, _ := strconv.ParseInt(strings.TrimPrefix(p, pre+"/issues/comments/"), 10, 64)
+		for i := range f.comments {
+			if f.comments[i].ID == id {
+				f.comments = append(f.comments[:i], f.comments[i+1:]...)
+				w.WriteHeader(204)
 				return
 			}
 		}
@@ -173,7 +197,7 @@ func (f *pubAPI) botComments() (n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, c := range f.comments {
-		if c.Login == pubBot && strings.HasPrefix(c.Body, report.CommentMarker) {
+		if c.Login == f.postAs && strings.HasPrefix(c.Body, report.CommentMarker) {
 			n++
 		}
 	}
@@ -186,6 +210,17 @@ func (f *pubAPI) addComment(login, body string) int64 {
 	f.nextID++
 	f.comments = append(f.comments, fakeComment{f.nextID, body, login})
 	return f.nextID
+}
+
+func (f *pubAPI) hasComment(id int64) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.comments {
+		if c.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *pubAPI) commentBody(id int64) string {
@@ -342,6 +377,90 @@ func TestPublish_OneComment(t *testing.T) {
 		}
 	})
 
+	t.Run("a bot-login that is not the default still gives one comment over two runs", func(t *testing.T) {
+		api := newPubAPI(t)
+		api.postAs = "intentgate-app[bot]" // the token belongs to another App
+		dir := outDir(t, true, "neutral", "upsert", "Findings")
+		mustPublish(t, dir, "--bot-login", "intentgate-app[bot]")
+		mustPublish(t, dir, "--bot-login", "intentgate-app[bot]")
+		if api.botComments() != 1 || len(api.comments) != 1 {
+			t.Fatalf("comments = %+v, want exactly one", api.comments)
+		}
+		var posts int
+		for _, c := range api.called() {
+			if c.Method == "POST" && c.Path == path {
+				posts++
+			}
+		}
+		if posts != 1 {
+			t.Errorf("%d comment POSTs over two runs, want 1", posts)
+		}
+	})
+
+	t.Run("a race that created two comments converges: the oldest is kept and updated, the other deleted", func(t *testing.T) {
+		api := newPubAPI(t)
+		api.race = true
+		alice := api.addComment("alice", "chatter")
+		mallory := api.addComment("mallory", marked("forged"))
+		mustPublish(t, outDir(t, true, "neutral", "upsert", "Findings"))
+		if api.botComments() != 1 {
+			t.Fatalf("comments = %+v, want exactly one bot comment", api.comments)
+		}
+		if !api.hasComment(alice) || !api.hasComment(mallory) || api.commentBody(mallory) != marked("forged") {
+			t.Errorf("another user's comment was touched: %+v", api.comments)
+		}
+		var kept fakeComment
+		for _, c := range api.comments {
+			if c.Login == pubBot {
+				kept = c
+			}
+		}
+		// The racing run's comment has the lowest bot id (mallory + 1); ours was created after it.
+		if kept.ID != mallory+1 || !strings.Contains(kept.Body, "The comment for Findings") {
+			t.Errorf("kept comment = %+v, want id %d with the new body", kept, mallory+1)
+		}
+		if api.count("DELETE") != 1 {
+			t.Errorf("calls = %v, want exactly one DELETE", api.called())
+		}
+	})
+
+	t.Run("two bot comments already there: the oldest is updated and the other deleted, nobody else's", func(t *testing.T) {
+		api := newPubAPI(t)
+		first := api.addComment(pubBot, marked("old a"))
+		other := api.addComment("mallory", marked("forged"))
+		second := api.addComment(pubBot, marked("old b"))
+		mustPublish(t, outDir(t, true, "neutral", "upsert", "Findings"))
+		if !strings.Contains(api.commentBody(first), "The comment for Findings") || api.hasComment(second) || !api.hasComment(other) {
+			t.Errorf("comments = %+v, want %d updated, %d deleted, %d untouched", api.comments, first, second, other)
+		}
+	})
+
+	t.Run("an empty 2xx answer to a PATCH is success", func(t *testing.T) {
+		api := newPubAPI(t)
+		api.emptyWrites = true
+		api.runs = []fakeRun{{ID: 5, Name: "IntentGate", HeadSHA: pubSHA}}
+		id := api.addComment(pubBot, marked("old"))
+		mustPublish(t, outDir(t, true, "neutral", "upsert", "Findings"))
+		if !strings.Contains(api.commentBody(id), "The comment for Findings") || api.runs[0].Title != "Findings" {
+			t.Errorf("comments = %+v, runs = %+v", api.comments, api.runs)
+		}
+	})
+
+	t.Run("a comment over 65000 bytes is cut on a UTF-8 boundary with the final line", func(t *testing.T) {
+		api := newPubAPI(t)
+		dir := outDir(t, true, "neutral", "upsert", "Findings")
+		big := report.CommentMarker + "\n" + strings.Repeat("é€😀", 20000)
+		if err := os.WriteFile(filepath.Join(dir, "comment.md"), []byte(big), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mustPublish(t, dir)
+		got := api.comments[0].Body
+		const tail = "\n… (truncated; the check run has the full summary)"
+		if len(got) > 65000 || !utf8.ValidString(got) || !strings.HasSuffix(got, tail) || !strings.HasPrefix(got, report.CommentMarker) {
+			t.Errorf("posted %d bytes, valid UTF-8 %v, final line %v, marker first %v", len(got), utf8.ValidString(got), strings.HasSuffix(got, tail), strings.HasPrefix(got, report.CommentMarker))
+		}
+	})
+
 	t.Run("a comment that contains but does not start with the marker is ignored", func(t *testing.T) {
 		api := newPubAPI(t)
 		api.addComment(pubBot, "quoting "+report.CommentMarker+" in the middle")
@@ -477,6 +596,23 @@ func TestPublish_Errors(t *testing.T) {
 		}
 		if len(api.called()) != 0 {
 			t.Errorf("calls = %v", api.called())
+		}
+	})
+
+	t.Run("a conclusion other than success or neutral is exit 3 and no call", func(t *testing.T) {
+		api := newPubAPI(t)
+		for _, c := range []string{"failure", "action_required", "cancelled", "timed_out", "skipped", "stale", "bogus", ""} {
+			code, _, errs := publishRun(t, outDir(t, true, c, "none", "T"))
+			if code != 3 || !strings.Contains(errs, "conclusion") {
+				t.Errorf("conclusion %q: exit %d, stderr %q; want 3 naming the conclusion", c, code, errs)
+			}
+		}
+		if len(api.called()) != 0 {
+			t.Errorf("calls = %v", api.called())
+		}
+		// not publishing: the conclusion is not looked at
+		if code, _, _ := publishRun(t, outDir(t, false, "failure", "none", "")); code != 0 {
+			t.Errorf("publish false with any conclusion: exit %d, want 0", code)
 		}
 	})
 
