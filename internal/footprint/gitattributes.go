@@ -43,6 +43,9 @@ func parseGitattributes(data []byte) ([]attrRule, error) {
 		if strings.HasPrefix(pattern, `"`) {
 			return nil, fmt.Errorf("footprint: .gitattributes line %d: quoted patterns are not supported", i+1)
 		}
+		if strings.HasPrefix(pattern, "!") {
+			return nil, fmt.Errorf("footprint: .gitattributes line %d: negative patterns are not allowed", i+1)
+		}
 		rule, err := newAttrRule(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("footprint: .gitattributes line %d: %w", i+1, err)

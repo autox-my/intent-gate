@@ -400,6 +400,9 @@ func TestImplicit_GeneratedVendored(t *testing.T) {
 	}
 
 	errCases := []struct{ name, attrs string }{
+		{"negative pattern", "!gen/** linguist-generated"},
+		{"negative pattern with no attributes", "!gen/**"},
+		{"negative pattern after valid lines", "gen/** linguist-generated\n!ext/** linguist-vendored"},
 		{"unclosed bracket", "[unclosed linguist-generated"},
 		{"unclosed brace", "{a linguist-vendored"},
 		{"invalid pattern in a path", "a/[b linguist-generated"},
