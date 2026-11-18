@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -30,12 +32,12 @@ const (
 	jevPath       = "/v1/systemone"
 	defaultBase   = "https://api.typesafe.ai"
 	defaultModel  = "jev-latest"
-	maxItemsEach  = 20      // root-intent items (the last ones) and plan items (the first ones)
-	maxStateBytes = 48000   // of the root intent (its tail) and of the plan (its head)
-	maxRespBytes  = 1 << 20 // of the response body
-	backstop      = 4 * time.Second
-	lowNoul       = 0.3 // omission and addition when the answer is below this
-	highNoul      = 0.7 // weakening when the answer is above this
+	maxItemsEach  = 20               // root-intent items (the last ones) and plan items (the first ones)
+	maxStateBytes = 48000            // of the root intent (its tail) and of the plan (its head)
+	maxRespBytes  = 1 << 20          // of the response body
+	backstop      = 10 * time.Second // of the HTTP client when the caller's context has no earlier deadline
+	lowNoul       = 0.3              // omission and addition when the answer is below this
+	highNoul      = 0.7              // weakening when the answer is above this
 )
 
 // The questions' instructions: three fixed strings that name an item id and never hold item text.
@@ -78,6 +80,14 @@ type jevAnswer struct {
 	Noul *float64 `json:"noul"`
 }
 
+// String and GoString keep the key out of any print of a Jev, whatever the verb.
+func (j Jev) String() string {
+	return fmt.Sprintf("Jev{base %q, model %q}", j.BaseURL, j.Model)
+}
+
+// GoString is String for %#v.
+func (j Jev) GoString() string { return j.String() }
+
 // Review asks Jev once. A missing or out-of-range answer is skipped; with no root item or no plan
 // item there is nothing to ask and no request is made. Any failure is an error with no retry: the
 // 5 s budget has no room for backoff, and ctx is the caller's deadline.
@@ -116,8 +126,12 @@ func (j Jev) Review(ctx context.Context, rootIntent, plan string) ([]Finding, er
 		return nil, err
 	}
 	noul := func(id string) (float64, bool) {
-		a, ok := answers[id]
-		if !ok || a.Noul == nil || (a.Type != "" && a.Type != noulKind) {
+		raw, ok := answers[id]
+		if !ok {
+			return 0, false
+		}
+		var a jevAnswer
+		if json.Unmarshal(raw, &a) != nil || a.Noul == nil || (a.Type != "" && a.Type != noulKind) {
 			return 0, false
 		}
 		v := *a.Noul
@@ -147,7 +161,7 @@ func (j Jev) Review(ctx context.Context, rootIntent, plan string) ([]Finding, er
 
 // ask posts the request and returns the answers by question id. The key travels only in the
 // Authorization header, over https (or loopback http), and is never in an error.
-func (j Jev) ask(ctx context.Context, req jevRequest) (map[string]jevAnswer, error) {
+func (j Jev) ask(ctx context.Context, req jevRequest) (map[string]json.RawMessage, error) {
 	base, err := jevBase(j.BaseURL)
 	if err != nil {
 		return nil, err
@@ -167,10 +181,17 @@ func (j Jev) ask(ctx context.Context, req jevRequest) (map[string]jevAnswer, err
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Accept", "application/json")
 
-	hc := &http.Client{Timeout: backstop}
+	limit := backstop
+	if j.backstopFor > 0 {
+		limit = j.backstopFor
+	}
+	hc := &http.Client{}
 	if j.HTTP != nil {
-		cp := *j.HTTP
+		cp := *j.HTTP // never the caller's client itself
 		hc = &cp
+	}
+	if hc.Timeout == 0 {
+		hc.Timeout = limit
 	}
 	hc.CheckRedirect = func(r *http.Request, via []*http.Request) error {
 		status := 0
@@ -181,32 +202,45 @@ func (j Jev) ask(ctx context.Context, req jevRequest) (map[string]jevAnswer, err
 	}
 	resp, err := hc.Do(hr)
 	if err != nil {
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
-		}
-		return nil, fmt.Errorf("%s: %s", jevSource, j.scrub(err.Error()))
+		return nil, j.transportError(ctx, err, "")
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxRespBytes+1))
 	if err != nil {
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
-		}
-		return nil, fmt.Errorf("%s: reading the response: %s", jevSource, j.scrub(err.Error()))
+		return nil, j.transportError(ctx, err, "reading the response: ")
+	}
+	// The limit comes first: a non-2xx body is decoded only from within it.
+	if len(data) > maxRespBytes {
+		return nil, fmt.Errorf("%s: the response is over %d bytes", jevSource, maxRespBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, j.statusError(resp.StatusCode, data)
 	}
-	if len(data) > maxRespBytes {
-		return nil, fmt.Errorf("%s: the response is over %d bytes", jevSource, maxRespBytes)
-	}
+	// Only a body that is not an object with an answers object is an error; each answer is
+	// decoded on its own by the caller.
 	var out struct {
-		Answers map[string]jevAnswer `json:"answers"`
+		Answers json.RawMessage `json:"answers"`
 	}
-	if err := json.Unmarshal(data, &out); err != nil {
+	var answers map[string]json.RawMessage
+	if json.Unmarshal(data, &out) != nil || len(out.Answers) == 0 || out.Answers[0] != '{' ||
+		json.Unmarshal(out.Answers, &answers) != nil {
 		return nil, fmt.Errorf("%s: bad JSON in the response", jevSource)
 	}
-	return out.Answers, nil
+	return answers, nil
+}
+
+// transportError turns a failed round trip into an error. The caller's context error is returned
+// as it is, and so is a client timeout (the backstop) as context.DeadlineExceeded, so Run reports
+// partial or unavailable and never Go's transport text. Anything else is scrubbed of the key.
+func (j Jev) transportError(ctx context.Context, err error, what string) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	var ne net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		return context.DeadlineExceeded
+	}
+	return fmt.Errorf("%s: %s%s", jevSource, what, j.scrub(err.Error()))
 }
 
 // statusError names the status and TypeSafe's detail.error_type, nothing else of the body.
@@ -234,11 +268,19 @@ func (j Jev) scrub(s string) string {
 	return strings.ReplaceAll(s, j.Key, "[redacted]")
 }
 
-// jevBase checks the base URL: https, except a loopback host (for tests), with no credentials.
+// jevBase checks the base URL: https, except a loopback host (for tests), with no userinfo, query
+// or fragment. An error never echoes the URL itself, which could hold credentials.
 func jevBase(raw string) (string, error) {
-	u, err := url.Parse(strings.TrimRight(raw, "/"))
-	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil {
-		return "", fmt.Errorf("jev: bad API URL %q", raw)
+	trimmed := strings.TrimRight(raw, "/")
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" || u.Hostname() == "" {
+		return "", errors.New("jev: bad API URL")
+	}
+	if u.User != nil || strings.Contains(trimmed, "@") {
+		return "", errors.New("jev: bad API URL: credentials in the URL are not allowed")
+	}
+	if u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "?#") {
+		return "", errors.New("jev: bad API URL: a query or fragment is not allowed")
 	}
 	switch u.Scheme {
 	case "https":
@@ -246,10 +288,10 @@ func jevBase(raw string) (string, error) {
 		switch strings.ToLower(u.Hostname()) {
 		case "127.0.0.1", "::1", "localhost":
 		default:
-			return "", fmt.Errorf("jev: refusing API URL %q: the key only travels over https (http is allowed only for 127.0.0.1, ::1 and localhost)", raw)
+			return "", fmt.Errorf("jev: refusing API URL with host %q: the key only travels over https (http is allowed only for 127.0.0.1, ::1 and localhost)", u.Host)
 		}
 	default:
-		return "", fmt.Errorf("jev: bad API URL %q: want an https URL", raw)
+		return "", errors.New("jev: bad API URL: want an https URL")
 	}
 	return u.String(), nil
 }
