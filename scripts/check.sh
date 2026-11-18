@@ -36,10 +36,10 @@ fi
 if need req; then
   step "req canon" req canon --fail-on-flag
   step "req satisfy" req satisfy
-  # Report-only until every claim links a passing test (req docs/adopting.md, "For an agent", step 4).
-  # Then this line becomes: step "req check" req check --test-report build/junit.xml
-  req gate --test-report build/junit.xml >"$log/req-gate.txt" 2>&1
-  echo "INFO req gate exit $? (report-only until every claim is linked; $log/req-gate.txt)"
+  # Every claim links a passing test (since S-11), so req gate is a real step now.
+  # `req check` (the release fold) follows once a human signs the first Baseline under baselines/;
+  # until then it can only answer UNVERIFIABLE, and signing is the human's act, never an agent's.
+  step "req gate" req gate --test-report build/junit.xml
 fi
 
 [ "$status" -eq 0 ] && echo "verdict: GREEN" || echo "verdict: RED"
