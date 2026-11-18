@@ -17,3 +17,5 @@ pins:
   unit: s
 tests:
   - "intentgate/internal/planreview::TestRun_Budget"
+  - "intentgate/cmd/intentgate::TestHook_PlanReviewBudgetCoversPreparation"
+  - "intentgate/cmd/intentgate::TestLock_PlanReviewBudgetCoversPreparation"
