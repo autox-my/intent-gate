@@ -297,3 +297,84 @@ func TestGitx_CommitTime(t *testing.T) {
 		t.Error("a rev that looks like an option gave no error")
 	}
 }
+
+// TestGitx_IgnoresCallerEnvironment: the answers of ChangedFiles, ShowFile and CommitTime do not
+// depend on the caller's directory, git environment variables or git configuration (S-08,
+// review 1 amendments).
+func TestGitx_IgnoresCallerEnvironment(t *testing.T) {
+	isolate(t)
+	dir := repoOn(t, "main")
+	put(t, dir, "src/a.txt", []byte("a\n"))
+	put(t, dir, "top.txt", []byte("top\n"))
+	commitAt(t, dir, "base", "2026-11-18T09:00:00Z")
+	base := git(t, dir, "rev-parse", "HEAD")
+	put(t, dir, "src/a.txt", []byte("a changed\n"))
+	put(t, dir, "top.txt", []byte("top changed\n"))
+	put(t, dir, "docs/new.md", []byte("new\n"))
+	commitAt(t, dir, "head", "2026-11-18T10:00:00Z")
+	head := git(t, dir, "rev-parse", "HEAD")
+	sub := filepath.Join(dir, "src")
+
+	want := []Change{
+		{Status: "A", Path: "docs/new.md"},
+		{Status: "M", Path: "src/a.txt"},
+		{Status: "M", Path: "top.txt"},
+	}
+	wantTime := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+	check := func(t *testing.T, from string) {
+		t.Helper()
+		got, err := ChangedFiles(from, base, head)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("ChangedFiles = %+v, %v; want %+v", got, err, want)
+		}
+		data, found, err := ShowFile(from, head, "src/a.txt")
+		if err != nil || !found || string(data) != "a changed\n" {
+			t.Errorf("ShowFile = %q, %v, %v", data, found, err)
+		}
+		if tm, err := CommitTime(from, head); err != nil || !tm.Equal(wantTime) {
+			t.Errorf("CommitTime = %v, %v; want %v", tm, err, wantTime)
+		}
+	}
+
+	t.Run("from the top level", func(t *testing.T) { check(t, dir) })
+	t.Run("from a subdirectory", func(t *testing.T) { check(t, sub) })
+	t.Run("GIT_DIR pointing at another repository", func(t *testing.T) {
+		other := repoOn(t, "main")
+		t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+		t.Setenv("GIT_WORK_TREE", other)
+		check(t, sub)
+	})
+	t.Run("GIT_CONFIG_COUNT sets diff.relative", func(t *testing.T) {
+		t.Setenv("GIT_CONFIG_COUNT", "1")
+		t.Setenv("GIT_CONFIG_KEY_0", "diff.relative")
+		t.Setenv("GIT_CONFIG_VALUE_0", "true")
+		check(t, sub)
+	})
+	t.Run("a global config file sets diff.relative", func(t *testing.T) {
+		global := filepath.Join(t.TempDir(), "gitconfig")
+		put(t, filepath.Dir(global), "gitconfig", []byte("[diff]\n\trelative = true\n\tnoprefix = true\n"))
+		t.Setenv("GIT_CONFIG_GLOBAL", global)
+		check(t, sub)
+	})
+	t.Run("the repository's own config sets diff.relative", func(t *testing.T) {
+		git(t, dir, "config", "diff.relative", "true")
+		git(t, dir, "config", "diff.noprefix", "true")
+		defer git(t, dir, "config", "--unset", "diff.relative")
+		defer git(t, dir, "config", "--unset", "diff.noprefix")
+		check(t, sub)
+	})
+}
+
+func TestGitx_ShowFile_Symlink(t *testing.T) {
+	isolate(t)
+	dir := repoOn(t, "main")
+	put(t, dir, "real.yml", []byte("x: 1\n"))
+	if err := os.Symlink("real.yml", filepath.Join(dir, "link.yml")); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "c", "2026-11-18T09:00:00Z")
+	_, found, err := ShowFile(dir, "HEAD", "link.yml")
+	if err == nil || found || !strings.Contains(err.Error(), "link.yml is a symlink in HEAD; commit the file itself") {
+		t.Errorf("ShowFile of a symlink = found %v, err %v; want the symlink error", found, err)
+	}
+}

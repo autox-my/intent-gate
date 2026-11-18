@@ -38,8 +38,8 @@ type vrepo struct {
 
 func newVRepo(t *testing.T) *vrepo {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	// The fixture's own git calls isolate themselves (gitAt), not through the process
+	// environment: the process environment is what the determinism variants change.
 	t.Setenv("INTENTGATE_BASE_REF", "")
 	r := &vrepo{t: t, dir: t.TempDir()}
 	r.git("init", "-q", "-b", "main")
@@ -59,7 +59,7 @@ func (r *vrepo) gitAt(date time.Time, args ...string) string {
 	r.t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.dir
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
 	if !date.IsZero() {
 		d := date.Format(time.RFC3339)
 		cmd.Env = append(cmd.Env, "GIT_COMMITTER_DATE="+d, "GIT_AUTHOR_DATE="+d)
@@ -150,9 +150,15 @@ func verifyRun(t *testing.T, dir string, args ...string) (code int, stdout, stde
 // code and the out dir.
 func (r *vrepo) verify(extra ...string) (code int, outDir string, stdout, stderr string) {
 	r.t.Helper()
+	return r.verifyIn(r.dir, extra...)
+}
+
+// verifyIn is verify run from dir, which may be a subdirectory of the repository.
+func (r *vrepo) verifyIn(dir string, extra ...string) (code int, outDir string, stdout, stderr string) {
+	r.t.Helper()
 	outDir = filepath.Join(r.t.TempDir(), "out")
 	args := []string{"--base", "main", "--head", "feature", "--base-branch", "main", "--out-dir", outDir}
-	code, stdout, stderr = verifyRun(r.t, r.dir, append(args, extra...)...)
+	code, stdout, stderr = verifyRun(r.t, dir, append(args, extra...)...)
 	return code, outDir, stdout, stderr
 }
 
@@ -542,10 +548,12 @@ func TestVerify_Deterministic(t *testing.T) {
 		files   map[string][]byte
 		formats map[string]string
 	}
-	collect := func(t *testing.T) outputs {
+	var collectIn func(t *testing.T, cwd string) outputs
+	collect := func(t *testing.T) outputs { return collectIn(t, r.dir) }
+	collectIn = func(t *testing.T, cwd string) outputs {
 		t.Helper()
 		o := outputs{files: map[string][]byte{}, formats: map[string]string{}}
-		code, dir, stdout, stderr := r.verify()
+		code, dir, stdout, stderr := r.verifyIn(cwd)
 		if code != 1 {
 			t.Fatalf("exit %d, want 1; stderr %q, stdout %q", code, stderr, stdout)
 		}
@@ -556,7 +564,7 @@ func TestVerify_Deterministic(t *testing.T) {
 			}
 		}
 		for _, f := range formats {
-			code, stdout, stderr := verifyRun(t, r.dir, "--base", "main", "--head", "feature", "--base-branch", "main", "--format", f)
+			code, stdout, stderr := verifyRun(t, cwd, "--base", "main", "--head", "feature", "--base-branch", "main", "--format", f)
 			if code != 1 || stdout == "" || stderr != "" {
 				t.Fatalf("--format %s: exit %d, stdout %q, stderr %q", f, code, stdout, stderr)
 			}
@@ -585,6 +593,47 @@ func TestVerify_Deterministic(t *testing.T) {
 	t.Setenv("LC_ALL", "tr_TR.UTF-8")
 	t.Setenv("LANG", "tr_TR.UTF-8")
 	compare(t, "other TZ and LC_ALL", first, collect(t))
+
+	// the caller's directory, git environment and git configuration change nothing
+	sub := filepath.Join(r.dir, "src")
+	t.Run("from a subdirectory", func(t *testing.T) {
+		compare(t, "subdirectory", first, collectIn(t, sub))
+	})
+	t.Run("GIT_DIR pointing at another repository", func(t *testing.T) {
+		other := t.TempDir()
+		cmd := exec.Command("git", "init", "-q", "-b", "main", other)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+		t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+		t.Setenv("GIT_WORK_TREE", other)
+		compare(t, "GIT_DIR", first, collectIn(t, r.dir))
+		compare(t, "GIT_DIR from a subdirectory", first, collectIn(t, sub))
+	})
+	t.Run("GIT_CONFIG_COUNT sets diff.relative", func(t *testing.T) {
+		t.Setenv("GIT_CONFIG_COUNT", "1")
+		t.Setenv("GIT_CONFIG_KEY_0", "diff.relative")
+		t.Setenv("GIT_CONFIG_VALUE_0", "true")
+		compare(t, "GIT_CONFIG_COUNT", first, collectIn(t, sub))
+	})
+	t.Run("a global config file sets diff.relative", func(t *testing.T) {
+		global := filepath.Join(t.TempDir(), "gitconfig")
+		if err := os.WriteFile(global, []byte("[diff]\n\trelative = true\n\tnoprefix = true\n\trenames = false\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GIT_CONFIG_GLOBAL", global)
+		compare(t, "global config", first, collectIn(t, sub))
+	})
+	t.Run("the repository's own config sets diff.relative", func(t *testing.T) {
+		r.git("config", "diff.relative", "true")
+		r.git("config", "diff.noprefix", "true")
+		t.Cleanup(func() {
+			r.git("config", "--unset", "diff.relative")
+			r.git("config", "--unset", "diff.noprefix")
+		})
+		compare(t, "repository config", first, collectIn(t, sub))
+	})
 
 	// each format goes to stdout as written to its file
 	for format, file := range map[string]string{"json": "verify.json", "sarif": "results.sarif", "summary": "summary.md", "comment": "comment.md"} {
@@ -626,6 +675,29 @@ func TestVerify_Deterministic(t *testing.T) {
 			t.Errorf("decision.json = %q, want it to start with %q", got, want)
 		}
 	})
+}
+
+// A symlink at head is not followed: its target is another path, possibly outside the repository.
+func TestVerify_SymlinkedConfig(t *testing.T) {
+	for _, name := range []string{".intentgate.yml", ".gitattributes"} {
+		t.Run(name, func(t *testing.T) {
+			r := newVRepo(t)
+			r.feature()
+			_, data := mkLock(t, lockA, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**"))
+			r.write(lockPath(lockA), string(data))
+			r.write("src/a.go", "package src\n")
+			r.write("real-config", "x: 1\n")
+			if err := os.Symlink("real-config", filepath.Join(r.dir, name)); err != nil {
+				t.Fatal(err)
+			}
+			r.commit("head", headDate)
+			code, _, stdout, stderr := r.verify()
+			want := name + " is a symlink in feature; commit the file itself"
+			if code != 3 || stdout != "" || !strings.Contains(stderr, want) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 3, empty stdout and %q", code, stdout, stderr, want)
+			}
+		})
+	}
 }
 
 func TestVerify_Usage(t *testing.T) {
