@@ -276,8 +276,7 @@ func TestClient_TokenOnlyOverTLS(t *testing.T) {
 
 	t.Run("the default client follows no redirects either (TLS server)", func(t *testing.T) {
 		var hits int
-		var other *httptest.Server
-		other = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+		other := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
 		defer other.Close()
 		srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
