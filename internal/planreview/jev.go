@@ -21,7 +21,9 @@ import (
 // (addition). Item text lives only in the request's state, never in a question's instructions.
 type Jev struct {
 	BaseURL, Key, Model string
-	HTTP                *http.Client // nil: a client with a 4 s timeout as a backstop to the caller's context
+	HTTP                *http.Client // nil: a client with a 10 s timeout as a backstop to the caller's context
+
+	backstopFor time.Duration // tests only: the backstop when not zero
 }
 
 const (

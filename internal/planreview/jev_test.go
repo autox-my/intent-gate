@@ -448,6 +448,182 @@ func TestJev_Transport(t *testing.T) {
 	})
 }
 
+// rawJev serves body verbatim with the given status.
+func rawJev(t *testing.T, status int, body string) Jev {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		fmt.Fprint(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return Jev{BaseURL: srv.URL, Key: testKey, Model: "jev-test"}
+}
+
+// Review 1 of S-12: each answer is decoded on its own.
+func TestJev_PerAnswerDecode(t *testing.T) {
+	ctx := context.Background()
+	j := rawJev(t, 200, `{"answers":{"omit_0":{"noul":"0.1"},"omit_1":{"noul":0.05},"omit_2":"oops","weak_0":[1],"weak_1":{"type":"noul","noul":null},"add_0":{"noul":{"x":1}}}}`)
+	got, err := j.Review(ctx, rootIntent, plan)
+	if err != nil {
+		t.Fatalf("a wrong-typed answer failed the review: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != Omission || got[0].Quote != "Keep the report under one page." || math.Abs(got[0].Confidence-0.95) > 1e-9 {
+		t.Errorf("findings = %+v, want exactly the omission of %q at 0.95", got, "Keep the report under one page.")
+	}
+	// Only a body that is not an object with an answers object is an error.
+	for name, body := range map[string]string{
+		"not JSON":             `<html>`,
+		"an array":             `[]`,
+		"answers is an array":  `{"answers":[]}`,
+		"answers is a string":  `{"answers":"none"}`,
+		"answers is missing":   `{"model":"x"}`,
+		"answers is null":      `{"answers":null}`,
+		"an empty object body": `{}`,
+	} {
+		if _, err := rawJev(t, 200, body).Review(ctx, rootIntent, plan); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+	if got, err := rawJev(t, 200, `{"answers":{}}`).Review(ctx, rootIntent, plan); err != nil || len(got) != 0 {
+		t.Errorf("an empty answers object: got %+v, %v; want no findings and no error", got, err)
+	}
+}
+
+// Review 1 of S-12: the HTTP backstop (10 s in production, shortened here) is on a copy of a
+// caller's zero-Timeout client, and a client timeout reads as a deadline, never as Go's text.
+func TestJev_Backstop(t *testing.T) {
+	if backstop != 10*time.Second {
+		t.Errorf("backstop = %v, want 10s", backstop)
+	}
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	caller := &http.Client{}
+	j := Jev{BaseURL: srv.URL, Key: testKey, HTTP: caller, backstopFor: 150 * time.Millisecond}
+	// The caller's context has a far deadline, so only the backstop can end this in time.
+	far, farCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer farCancel()
+	start := time.Now()
+	_, err := j.Review(far, rootIntent, plan)
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("the backstop did not fire: returned after %v", d)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if err != nil && (strings.Contains(err.Error(), "Client.Timeout") || strings.Contains(err.Error(), "net/http")) {
+		t.Errorf("Go's transport text leaks: %v", err)
+	}
+	if caller.Timeout != 0 {
+		t.Errorf("the caller's client was modified: Timeout = %v", caller.Timeout)
+	}
+
+	// Through Run: a hung server is partial/unavailable, never error, and Display has no Go text.
+	res := Run(context.Background(), j, rootIntent, plan, 2*time.Second)
+	if out := Display(res); strings.Contains(out, "Client.Timeout") || strings.Contains(out, "net/http") {
+		t.Errorf("backstop: Display has Go transport text: %q", out)
+	}
+	if res.Status != Unavail && res.Status != Partial {
+		t.Errorf("backstop: Run status = %q (%q), want unavailable or partial", res.Status, res.Err)
+	}
+	// Under the caller's deadline (500 ms budget) the deadline fires first.
+	hung := Jev{BaseURL: srv.URL, Key: testKey, HTTP: &http.Client{}}
+	cctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start = time.Now()
+	if _, err := hung.Review(cctx, rootIntent, plan); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("a 500 ms deadline returned after %v", d)
+	}
+	start = time.Now()
+	res = Run(context.Background(), hung, rootIntent, plan, 500*time.Millisecond)
+	if res.Status != Unavail && res.Status != Partial {
+		t.Errorf("deadline: Run status = %q (%q), want unavailable or partial", res.Status, res.Err)
+	}
+	if out := Display(res); strings.Contains(out, "Client.Timeout") || strings.Contains(out, "net/http") || strings.Contains(out, "Post ") {
+		t.Errorf("Display has Go transport text: %q", out)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("Run returned after %v, want within its 500 ms budget", d)
+	}
+}
+
+// Review 1 of S-12: a base URL with userinfo, a query or a fragment is refused, and no error
+// holds the userinfo.
+func TestJev_BaseURLHygiene(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer srv.Close()
+	for _, base := range []string{
+		"https://user:pw@127.0.0.1",
+		"https://user:pw@localhost:1",
+		"http://user:pw@127.0.0.1:9",
+		"https://user:pw@127.0.0.1:notaport",
+		"https://:pw@127.0.0.1",
+		"https://127.0.0.1:1?key=1",
+		"https://127.0.0.1:1/?",
+		"https://127.0.0.1:1#frag",
+		"https://127.0.0.1:1/#",
+		srv.URL + "?a=b",
+		srv.URL + "#x",
+	} {
+		_, err := Jev{BaseURL: base, Key: testKey}.Review(context.Background(), rootIntent, plan)
+		if err == nil {
+			t.Errorf("%q: no error", base)
+			continue
+		}
+		if strings.Contains(err.Error(), "pw") || strings.Contains(err.Error(), "user:") {
+			t.Errorf("%q: the error holds the userinfo: %v", base, err)
+		}
+		if strings.Contains(err.Error(), testKey) {
+			t.Errorf("%q: the key is in the error", base)
+		}
+	}
+	if hits != 0 {
+		t.Errorf("%d requests were sent to a refused base URL", hits)
+	}
+}
+
+// Review 1 of S-12: the 1 MB limit comes before the status.
+func TestJev_BodyLimitBeforeStatus(t *testing.T) {
+	big := `{"detail":{"error_type":"internal_error"},"pad":"` + strings.Repeat("a", 2<<20) + `"}`
+	_, err := rawJev(t, 500, big).Review(context.Background(), rootIntent, plan)
+	if err == nil {
+		t.Fatal("no error")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("over %d bytes", maxRespBytes)) {
+		t.Errorf("error = %q, want the body-limit error", err)
+	}
+	// A small error body is still decoded for its error_type.
+	_, err = rawJev(t, 500, `{"detail":{"error_type":"internal_error"}}`).Review(context.Background(), rootIntent, plan)
+	if err == nil || !strings.Contains(err.Error(), "500") || !strings.Contains(err.Error(), "internal_error") {
+		t.Errorf("error = %v, want the status and error_type", err)
+	}
+}
+
+// Review 1 of S-12: printing a Jev, with any verb, never shows its Key.
+func TestJev_NeverPrintsKey(t *testing.T) {
+	j := Jev{BaseURL: "https://api.typesafe.ai", Key: testKey, Model: "jev-test"}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		for name, arg := range map[string]any{"value": j, "pointer": &j} {
+			if out := fmt.Sprintf(verb, arg); strings.Contains(out, testKey) {
+				t.Errorf("%s of a Jev %s prints its key: %q", verb, name, out)
+			}
+		}
+	}
+}
+
 func TestItems(t *testing.T) {
 	cases := []struct {
 		name, in string
@@ -547,7 +723,7 @@ func TestSelect(t *testing.T) {
 
 	j, ok = Select(env(map[string]string{"TYPESAFE_API_KEY": testKey, "TYPESAFE_BASE_URL": "http://127.0.0.1:9", "TYPESAFE_MODEL": "jev-1.14.0"})).(Jev)
 	if !ok || j.BaseURL != "http://127.0.0.1:9" || j.Model != "jev-1.14.0" {
-		t.Errorf("custom: %+v, want base http://127.0.0.1:9 and model jev-1.14.0", j)
+		t.Errorf("custom: base %q model %q, want base http://127.0.0.1:9 and model jev-1.14.0", j.BaseURL, j.Model)
 	}
 	// Any other value of INTENTGATE_PLAN_REVIEW leaves a key in charge.
 	if _, ok := Select(env(map[string]string{"INTENTGATE_PLAN_REVIEW": "on", "TYPESAFE_API_KEY": testKey})).(Jev); !ok {
