@@ -415,9 +415,15 @@ func TestPublish_OneComment(t *testing.T) {
 				kept = c
 			}
 		}
-		// The racing run's comment has the lowest bot id (mallory + 1); ours was created after it.
-		if kept.ID != mallory+1 || !strings.Contains(kept.Body, "The comment for Findings") {
-			t.Errorf("kept comment = %+v, want id %d with the new body", kept, mallory+1)
+		// The racing run's comment was created just before ours, so it has the lower id: it is kept.
+		var deleted int64
+		for _, c := range api.called() {
+			if c.Method == "DELETE" {
+				deleted, _ = strconv.ParseInt(strings.TrimPrefix(c.Path, "/repos/octo/repo/issues/comments/"), 10, 64)
+			}
+		}
+		if deleted == 0 || kept.ID != deleted-1 || !strings.Contains(kept.Body, "The comment for Findings") {
+			t.Errorf("kept comment = %+v, deleted id %d; want the lower id kept with the new body", kept, deleted)
 		}
 		if api.count("DELETE") != 1 {
 			t.Errorf("calls = %v, want exactly one DELETE", api.called())

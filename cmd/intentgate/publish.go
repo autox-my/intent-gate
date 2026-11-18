@@ -132,25 +132,46 @@ func publishCheckRun(ctx context.Context, c *github.Client, owner, repo string, 
 }
 
 // publishComment edits the bot's marker comment; with none it creates one for upsert and does
-// nothing for update-if-exists.
+// nothing for update-if-exists. Two runs that race can each create one: after a create it lists
+// again, and whenever more than one bot comment starts with the marker it keeps the oldest (lowest
+// id), updates it and deletes the others, so the pull request converges to one comment.
 func publishComment(ctx context.Context, c *github.Client, owner, repo string, pr int, mode policy.CommentMode, body, bot string) (string, error) {
-	id, found, err := c.FindComment(ctx, owner, repo, pr, report.CommentMarker, bot)
+	ids, err := c.FindComments(ctx, owner, repo, pr, report.CommentMarker, bot)
 	if err != nil {
 		return "", err
 	}
-	switch {
-	case found:
-		if err := c.UpdateComment(ctx, owner, repo, id, body); err != nil {
+	verb := "updated"
+	if len(ids) == 0 {
+		if mode != policy.Upsert {
+			return "", nil
+		}
+		if _, err := c.CreateComment(ctx, owner, repo, pr, body); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("updated comment %d", id), nil
-	case mode == policy.Upsert:
-		if id, err = c.CreateComment(ctx, owner, repo, pr, body); err != nil {
+		verb = "created"
+		if ids, err = c.FindComments(ctx, owner, repo, pr, report.CommentMarker, bot); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("created comment %d", id), nil
+		if len(ids) == 0 {
+			return "", fmt.Errorf("github: the comment just created is not in the list of comments of #%d", pr)
+		}
 	}
-	return "", nil
+	keep := ids[0]
+	if verb == "updated" || len(ids) > 1 {
+		if err := c.UpdateComment(ctx, owner, repo, keep, body); err != nil {
+			return "", err
+		}
+	}
+	for _, id := range ids[1:] {
+		if err := c.DeleteComment(ctx, owner, repo, id); err != nil {
+			return "", err
+		}
+	}
+	msg := fmt.Sprintf("%s comment %d", verb, keep)
+	if len(ids) > 1 {
+		msg += fmt.Sprintf(" (deleted %d duplicate)", len(ids)-1)
+	}
+	return msg, nil
 }
 
 // loadDecision reads and checks decision.json in dir.
@@ -173,8 +194,12 @@ func loadDecision(dir string) (policy.Decision, error) {
 	default:
 		return policy.Decision{}, fmt.Errorf("decision.json: unknown comment mode %q", d.Comment)
 	}
-	if d.Conclusion == "" || d.Title == "" {
-		return policy.Decision{}, errors.New("decision.json: a decision to publish needs a conclusion and a title")
+	if d.Title == "" {
+		return policy.Decision{}, errors.New("decision.json: a decision to publish needs a title")
+	}
+	// Phase 0 is advisory: a check run may only conclude success or neutral, never block.
+	if d.Conclusion != "success" && d.Conclusion != "neutral" {
+		return policy.Decision{}, fmt.Errorf("decision.json: conclusion %q must be success or neutral", d.Conclusion)
 	}
 	return out, nil
 }
