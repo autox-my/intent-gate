@@ -1,8 +1,10 @@
 package lock
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -422,5 +424,56 @@ func TestCanonicalJSON(t *testing.T) {
 		if _, err := CanonicalJSON([]byte(in)); err == nil {
 			t.Errorf("CanonicalJSON(%q) accepted input that must be rejected", in)
 		}
+	}
+}
+
+// The JSON Schema is the public contract; Go is the enforcement. This pins the parts of the schema
+// that must agree with Validate (REQ-0012, REQ-0010) and the documented gap (duplicate ids).
+func TestSchema_AgreesWithValidation(t *testing.T) {
+	raw, err := os.ReadFile("../../schema/intentgate.lock.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	props := doc["properties"].(map[string]any)
+	rat := props["ratification"].(map[string]any)
+	ratProps := rat["properties"].(map[string]any)
+
+	required := map[string]bool{}
+	for _, r := range rat["required"].([]any) {
+		required[r.(string)] = true
+	}
+	if !required["review_duration_ms"] {
+		t.Error("schema: ratification.required lacks review_duration_ms")
+	}
+	rd := ratProps["review_duration_ms"].(map[string]any)
+	if rd["type"] != "integer" || rd["minimum"] != float64(0) {
+		t.Errorf("schema: review_duration_ms = %v, want integer with minimum 0", rd)
+	}
+
+	pat, _ := ratProps["ratified_at"].(map[string]any)["pattern"].(string)
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		t.Fatalf("schema: ratified_at pattern %q: %v", pat, err)
+	}
+	for in, want := range map[string]bool{
+		"2026-11-18T09:14:03Z":      true,
+		"2026-11-18T09:14:03.5Z":    true,
+		"2026-99-99T99:99:99Z":      false,
+		"2026-13-01T00:00:00Z":      false,
+		"2026-11-32T00:00:00Z":      false,
+		"2026-11-18T24:00:00Z":      false,
+		"2026-11-18T09:14:03+07:00": false,
+	} {
+		if got := re.MatchString(in); got != want {
+			t.Errorf("schema: ratified_at pattern matches %q = %v, want %v", in, got, want)
+		}
+	}
+
+	if d, _ := doc["description"].(string); !strings.Contains(d, "duplicate criterion id") {
+		t.Error("schema: description does not say duplicate criterion ids are rejected by the Go validator")
 	}
 }
