@@ -32,6 +32,13 @@ Phase 0's audit trail: one `intentgate.audit/1` event per `verify`, `lock` and `
   - Also: count by `ratification.method`, median `review_duration_ms` (lower middle for even counts; `n/a` when none).
   - JSON `intentgate.stats/1` with fixed key order; deterministic for the same `HEAD`.
   - `gitx` additions: `LockAdditions(dir, rev)`, using S-08's scrubbed environment and pinned config.
+- Review 1 amendments (binding):
+  - A verify event lists only locks that pass `lock.Parse` and `lock.Validate` and sit at `.intent/<id>.yml`; other changed lock files are counted in a new integer field `unverifiable_locks`, with no text from them. Schema updated.
+  - `--replay` requires `base_sha` and `head_sha` to be full 40- or 64-hex object names that resolve to themselves as commits; anything else (a branch name, a short sha) exits 3.
+  - `stats` follows renames: `LockAdditions` uses `--diff-filter=AR --find-renames` on first-parent history, oldest first, and a lock's add time is the time of the original `A`, carried through each `R` to the path it has at `HEAD`. A renamed lock is never "newly added".
+  - `audit.jsonl`: opened with `O_APPEND|O_CREATE|O_WRONLY|O_NOFOLLOW`, must be a regular file (else a warning, nothing written), and set to 0600 with `fchmod` after opening, so an existing looser file is tightened.
+  - `config_sha256` is `""` when `.intentgate.yml` is absent, and the SHA-256 of its bytes otherwise (an empty file hashes to `e3b0c442…`).
+  - REQ-0042 also links `TestVerify_AuditEvent`, which proves the PR check itself writes the method of each lock it evaluated.
 - Action: pass `--repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"` to `verify` through `env:`; `audit.json` rides in the existing `intentgate` artifact.
 - Dependencies: none new.
 
@@ -49,7 +56,7 @@ The red commit may contain stubs that compile, so the tests fail on assertions. 
 
 ## Claim links
 
-After green, add `tests:`: REQ-0042 `TestAuditEvent_RatificationMethod`; REQ-0041 `TestStats_AmendmentRate`, ids exactly as in `build/junit.xml`.
+After green, add `tests:`: REQ-0042 `TestAuditEvent_RatificationMethod` and `TestVerify_AuditEvent`; REQ-0041 `TestStats_AmendmentRate`, ids exactly as in `build/junit.xml`.
 
 ## Verify
 
