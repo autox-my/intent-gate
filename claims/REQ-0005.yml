@@ -14,3 +14,4 @@ relations: []
 tests:
   - "intentgate/cmd/intentgate::TestLock_RequiresTerminalAndYes"
   - "intentgate/cmd/intentgate::TestAmend_RequiresTerminalAndYes"
+  - "intentgate/cmd/intentgate::TestLock_BuiltBinaryNeedsRealTerminal"

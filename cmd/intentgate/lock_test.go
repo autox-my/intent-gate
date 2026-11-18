@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -320,6 +321,82 @@ func TestLock_RequiresTerminalAndYes(t *testing.T) {
 		}
 		e.nothingWritten()
 	})
+}
+
+// Review 1 of S-05: the real terminal check. /dev/null is a character device but not a terminal, so
+// `lock` and `amend` with stdin and stdout on /dev/null, or on pipes, exit 2 and write nothing. It
+// runs the built binary with a temp INTENTGATE_HOME and temp repositories.
+func TestLock_BuiltBinaryNeedsRealTerminal(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "intentgate")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	t.Setenv("HOME", t.TempDir()) // so nothing can fall back to the real home
+
+	devNull := func(t *testing.T) *os.File {
+		f, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { f.Close() })
+		return f
+	}
+	wirings := map[string]func(t *testing.T, cmd *exec.Cmd){
+		"stdin and stdout on /dev/null": func(t *testing.T, cmd *exec.Cmd) { cmd.Stdin, cmd.Stdout = devNull(t), devNull(t) },
+		"stdin on /dev/null, stdout a pipe": func(t *testing.T, cmd *exec.Cmd) {
+			cmd.Stdin, cmd.Stdout = devNull(t), &bytes.Buffer{}
+		},
+		"stdin a pipe, stdout on /dev/null": func(t *testing.T, cmd *exec.Cmd) {
+			cmd.Stdin, cmd.Stdout = strings.NewReader("yes\n"), devNull(t)
+		},
+		"stdin and stdout pipes": func(t *testing.T, cmd *exec.Cmd) {
+			cmd.Stdin, cmd.Stdout = strings.NewReader("yes\n"), &bytes.Buffer{}
+		},
+	}
+	run := func(t *testing.T, e *env, wire func(*testing.T, *exec.Cmd), args ...string) (int, string) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = e.repo
+		cmd.Env = append(os.Environ(), "INTENTGATE_HOME="+e.state)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		wire(t, cmd)
+		code := 0
+		if err := cmd.Run(); err != nil {
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatal(err)
+			}
+			code = ee.ExitCode()
+		}
+		return code, stderr.String()
+	}
+
+	for name, wire := range wirings {
+		t.Run("lock with "+name, func(t *testing.T) {
+			e := newEnv(t, "dev@example.com")
+			plan := e.write("plan.md", planText)
+			prompt := e.write("prompt.txt", rootIntent)
+			code, stderr := run(t, e, wire, "lock", "--from-plan", plan, "--prompt", prompt)
+			want := "intentgate lock needs an interactive terminal; ratification is a human act"
+			if code != 2 || !strings.Contains(stderr, want) {
+				t.Errorf("exit %d, stderr %q; want 2 and %q", code, stderr, want)
+			}
+			e.nothingWritten()
+		})
+		t.Run("amend with "+name, func(t *testing.T) {
+			e, id, path := lockedEnv(t)
+			before, _ := os.ReadFile(path)
+			code, stderr := run(t, e, wire, "amend", id, "--reratify")
+			want := "intentgate amend needs an interactive terminal; ratification is a human act"
+			if code != 2 || !strings.Contains(stderr, want) {
+				t.Errorf("exit %d, stderr %q; want 2 and %q", code, stderr, want)
+			}
+			if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+				t.Error("the lock file changed")
+			}
+		})
+	}
 }
 
 // ---- amend ----

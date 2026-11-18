@@ -36,14 +36,3 @@ func stateDir() string {
 	}
 	return filepath.Join(home, ".intentgate")
 }
-
-// isTerminal reports whether standard descriptor fd (0 or 1) is a character device, which is what
-// a terminal is; it needs no dependency.
-func isTerminal(fd int) bool {
-	f := map[int]*os.File{0: os.Stdin, 1: os.Stdout}[fd]
-	if f == nil {
-		return false
-	}
-	fi, err := f.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
