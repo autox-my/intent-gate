@@ -11,3 +11,6 @@ rationale:
   rejected_alternatives: []
   assumptions: []
 relations: []
+tests:
+  - "intentgate/cmd/intentgate::TestHook_ApprovedPlanWritesLock"
+  - "intentgate/cmd/intentgate::TestHook_RejectedPlanWritesNothing"
