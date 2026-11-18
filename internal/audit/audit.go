@@ -61,7 +61,7 @@ type Verify struct {
 	BaseSHA, HeadSHA, BaseBranch, Author, AuthorType string
 	ConfigSHA256, VerifySHA256                       string
 	Locks                                            []lock.Lock
-	UnverifiableLocks                                int
+	UnverifiableLocks                                int // changed lock files that are not in Locks; counted, never quoted
 	Outcome                                          string
 	ExitCode                                         int
 	Conclusion                                       string
@@ -73,7 +73,7 @@ func NewVerifyEvent(at time.Time, version, repo string, pr int, v Verify) Event 
 		Schema: SchemaID, Event: EventVerify, At: at.UTC().Truncate(time.Second).Format(timeLayout),
 		Repo: repo, PR: pr, BaseSHA: v.BaseSHA, HeadSHA: v.HeadSHA, BaseBranch: v.BaseBranch,
 		Author: v.Author, AuthorType: v.AuthorType, IntentGateVersion: version,
-		ConfigSHA256: v.ConfigSHA256, VerifySHA256: v.VerifySHA256, Locks: entries(v.Locks...),
+		ConfigSHA256: v.ConfigSHA256, VerifySHA256: v.VerifySHA256, Locks: entries(v.Locks...), UnverifiableLocks: v.UnverifiableLocks,
 		Outcome: v.Outcome, ExitCode: v.ExitCode, Conclusion: v.Conclusion,
 	}
 }

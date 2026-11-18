@@ -5,7 +5,7 @@
   "description": "One event of schema intentgate.audit/1: `audit.json` in the out dir of `intentgate verify`, and one line of <state>/audit.jsonl for every local `verify`, `lock` and `amend`. It holds ids, hashes and counts only: no code, diff, criterion text, footprint or root intent text. Every key is always present; a value that does not apply to the event kind is an empty string, or 0 for pr and exit_code, and a lock without a review duration has null.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "event", "at", "repo", "pr", "base_sha", "head_sha", "base_branch", "author", "author_type", "intentgate_version", "config_sha256", "verify_sha256", "locks", "outcome", "exit_code", "conclusion"],
+  "required": ["schema", "event", "at", "repo", "pr", "base_sha", "head_sha", "base_branch", "author", "author_type", "intentgate_version", "config_sha256", "verify_sha256", "locks", "unverifiable_locks", "outcome", "exit_code", "conclusion"],
   "properties": {
     "schema": { "const": "intentgate.audit/1" },
     "event": { "enum": ["verify", "lock", "amend"] },
@@ -18,10 +18,10 @@
     "author": { "description": "verify only: the --author value.", "type": "string" },
     "author_type": { "description": "verify only: the --author-type value.", "type": "string" },
     "intentgate_version": { "type": "string" },
-    "config_sha256": { "description": "verify only: hex SHA-256 of .intentgate.yml at head (of nothing when the file is absent).", "type": "string" },
+    "config_sha256": { "description": "verify only: hex SHA-256 of the bytes of .intentgate.yml at head (an empty file has e3b0c442...); empty string when the file is absent.", "type": "string" },
     "verify_sha256": { "description": "verify only: hex SHA-256 of the bytes of the run's verify.json. `verify --replay` compares a fresh run against it.", "type": "string" },
     "locks": {
-      "description": "verify: the lock files at head that parse. lock, amend: the one lock written. Sorted by id.",
+      "description": "verify: the changed lock files at head that parse, validate and sit at .intent/<id>.yml. lock, amend: the one lock written. Sorted by id.",
       "type": "array",
       "items": {
         "type": "object",
@@ -36,6 +36,7 @@
         }
       }
     },
+    "unverifiable_locks": { "description": "verify: the number of changed lock files not listed in locks (deleted, unparsable, invalid or misplaced); nothing from them is recorded. lock, amend: 0.", "type": "integer", "minimum": 0 },
     "outcome": { "description": "verify: the outcome of verify.json. lock, amend: written.", "type": "string" },
     "exit_code": { "description": "verify: 0, 1 or 3. lock, amend: 0.", "type": "integer", "enum": [0, 1, 3] },
     "conclusion": { "description": "verify: the check run's conclusion. lock, amend: empty.", "type": "string" }

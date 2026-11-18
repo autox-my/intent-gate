@@ -74,7 +74,7 @@ func runVerify(args []string, stdout io.Writer, deps Deps) int {
 		return t.usage(verifyUsage, "--repo is owner/name and --pr a pull request number")
 	}
 
-	in, err := readVerifyInput(deps.Dir, *base, *head, *baseBranch, *author, *authorType)
+	in, configFound, err := readVerifyInput(deps.Dir, *base, *head, *baseBranch, *author, *authorType)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate verify: %v", err)
 	}
@@ -102,10 +102,15 @@ func runVerify(args []string, stdout io.Writer, deps Deps) int {
 		if err != nil {
 			return t.fail(exitUnverifiable, "intentgate verify: %v", err)
 		}
+		locks, unverifiable := auditLocks(in)
+		configSHA := "" // an absent config has no hash; an empty one has the hash of nothing
+		if configFound {
+			configSHA = sha256Hex(in.Config)
+		}
 		event = audit.NewVerifyEvent(deps.Now(), version, *repoFlag, *pr, audit.Verify{
 			BaseSHA: baseSHA, HeadSHA: headSHA, BaseBranch: *baseBranch, Author: *author, AuthorType: *authorType,
-			ConfigSHA256: sha256Hex(in.Config), VerifySHA256: sha256Hex(outputs["json"]),
-			Locks: auditLocks(in), Outcome: string(res.Outcome), ExitCode: res.ExitCode, Conclusion: dec.Conclusion,
+			ConfigSHA256: configSHA, VerifySHA256: sha256Hex(outputs["json"]),
+			Locks: locks, UnverifiableLocks: unverifiable, Outcome: string(res.Outcome), ExitCode: res.ExitCode, Conclusion: dec.Conclusion,
 		})
 		auditJSON = audit.JSON(event)
 	}
@@ -126,19 +131,24 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// auditLocks are the locks of the pull request that parse: the lock files at head that are not
-// deleted. A file that does not parse has no id or method to record; verify.json reports it.
-func auditLocks(in verify.Input) []lock.Lock {
-	var ls []lock.Lock
+// auditLocks are the locks of the pull request that the event may list: the lock files at head that
+// are not deleted, parse, validate and sit at .intent/<id>.yml. Every other changed lock file is
+// only counted, so the event never quotes an id, hash or method from a file that did not validate;
+// verify.json reports those files.
+func auditLocks(in verify.Input) (locks []lock.Lock, unverifiable int) {
 	for _, f := range in.LockFiles {
 		if f.Status == footprint.Deleted || f.Data == nil {
+			unverifiable++
 			continue
 		}
-		if l, err := lock.Parse(f.Data); err == nil {
-			ls = append(ls, l)
+		l, err := lock.Parse(f.Data)
+		if err != nil || len(lock.Validate(l)) > 0 || f.Path != lockDirPrefix+l.ID+".yml" {
+			unverifiable++
+			continue
 		}
+		locks = append(locks, l)
 	}
-	return ls
+	return locks, unverifiable
 }
 
 // runReplay re-runs the decision recorded in a verify audit event (core-contracts.md §1): the same
@@ -159,7 +169,7 @@ func runReplay(t *term, path string, deps Deps) int {
 	if ev.Schema != audit.SchemaID || ev.Event != audit.EventVerify || ev.BaseSHA == "" || ev.HeadSHA == "" || ev.BaseBranch == "" || ev.VerifySHA256 == "" {
 		return t.fail(exitUnverifiable, "intentgate verify: %s is not a %s verify event with its refs and verify_sha256", path, audit.SchemaID)
 	}
-	in, err := readVerifyInput(deps.Dir, ev.BaseSHA, ev.HeadSHA, ev.BaseBranch, ev.Author, ev.AuthorType)
+	in, _, err := readVerifyInput(deps.Dir, ev.BaseSHA, ev.HeadSHA, ev.BaseBranch, ev.Author, ev.AuthorType)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate verify: %v", err)
 	}
@@ -173,21 +183,21 @@ func runReplay(t *term, path string, deps Deps) int {
 	return 1
 }
 
-// readVerifyInput reads everything the check looks at, at head, through git (verify.Input).
-func readVerifyInput(dir, base, head, baseBranch, author, authorType string) (verify.Input, error) {
-	in := verify.Input{BaseBranch: baseBranch, Author: author, AuthorType: authorType}
-	var err error
+// readVerifyInput reads everything the check looks at, at head, through git (verify.Input). It also
+// reports whether .intentgate.yml exists at head, which verify.Input does not tell apart from empty.
+func readVerifyInput(dir, base, head, baseBranch, author, authorType string) (in verify.Input, configFound bool, err error) {
+	in = verify.Input{BaseBranch: baseBranch, Author: author, AuthorType: authorType}
 	if in.EvalTime, err = gitx.CommitTime(dir, head); err != nil {
-		return in, err
+		return in, false, err
 	}
 	changes, err := gitx.ChangedFiles(dir, base, head)
 	if err != nil {
-		return in, err
+		return in, false, err
 	}
 	for _, c := range changes {
 		cf, lf, err := mapChange(c)
 		if err != nil {
-			return in, err
+			return in, false, err
 		}
 		in.Changed = append(in.Changed, cf)
 		if lf == nil {
@@ -196,22 +206,22 @@ func readVerifyInput(dir, base, head, baseBranch, author, authorType string) (ve
 		if lf.Status != footprint.Deleted {
 			data, found, err := gitx.ShowFile(dir, head, lf.Path)
 			if err != nil {
-				return in, err
+				return in, false, err
 			}
 			if !found {
-				return in, fmt.Errorf("%s is changed but not in %s", lf.Path, head)
+				return in, false, fmt.Errorf("%s is changed but not in %s", lf.Path, head)
 			}
 			lf.Data = data
 		}
 		in.LockFiles = append(in.LockFiles, *lf)
 	}
-	if in.Config, _, err = gitx.ShowFile(dir, head, configFile); err != nil {
-		return in, err
+	if in.Config, configFound, err = gitx.ShowFile(dir, head, configFile); err != nil {
+		return in, false, err
 	}
 	if in.GitAttributes, _, err = gitx.ShowFile(dir, head, attributesFile); err != nil {
-		return in, err
+		return in, false, err
 	}
-	return in, nil
+	return in, configFound, nil
 }
 
 func isLockPath(p string) bool {
