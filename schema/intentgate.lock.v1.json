@@ -18,10 +18,11 @@
     "root_intent": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sha256", "source"],
+      "required": ["sha256", "source", "redactions"],
       "properties": {
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "source": { "enum": ["claude-code-session", "issue", "plan-file"] }
+        "source": { "enum": ["claude-code-session", "issue", "plan-file"] },
+        "redactions": { "description": "Secrets masked in the root intent before it was hashed (REQ-0015).", "type": "integer", "minimum": 0 }
       }
     },
     "criteria": {

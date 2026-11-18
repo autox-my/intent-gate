@@ -134,6 +134,14 @@ func Validate(l Lock) []Problem {
 		add("root_intent.source", "must be one of %s, got %q", strings.Join(sources, ", "), l.RootIntent.Source)
 	}
 
+	// REQ-0015: recorded by the ratifier, so it must be there
+	switch r := l.RootIntent.Redactions; {
+	case r == nil:
+		add("root_intent.redactions", "is required")
+	case *r < 0:
+		add("root_intent.redactions", "must be an integer of at least 0, got %d", *r)
+	}
+
 	// REQ-0007
 	if n := len(l.Criteria); n < 1 || n > MaxCriteria {
 		add("criteria", "must have 1 to %d criteria, has %d", MaxCriteria, n)
@@ -270,5 +278,21 @@ func contains(set []string, s string) bool {
 	return false
 }
 
-// Marshal renders the lock as YAML with the field order of intent-lock.md §2 (stub).
-func Marshal(l Lock) ([]byte, error) { return nil, nil }
+// Marshal renders the lock as YAML in the field order of intent-lock.md §2 (the order of the
+// struct fields), two-space indented. It is deterministic and does not validate or hash: Parse of
+// the output gives back an equal Lock.
+func Marshal(l Lock) ([]byte, error) {
+	if l.Amendments == nil {
+		l.Amendments = []Amendment{}
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(l); err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	return buf.Bytes(), nil
+}

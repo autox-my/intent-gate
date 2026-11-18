@@ -7,7 +7,7 @@ import (
 
 // A well-formed but made-up GitHub personal access token (not a real credential).
 const fakeToken = "ghp_" + "R8s2Kd91LmQw7XvB3nTz5YcJ4hFg6PaE0uVi"
-const fakeToken2 = "ghp_" + "Zq4Wn8Tb2Lk6Vd0Xs9Ym3Hc7Fj1Pa5Ru8Ge"
+const fakeToken2 = "ghp_" + "Zq4Wn8Tb2Lk6Vd0Xs9Ym3Hc7Fj1Pa5Ru8Ge2"
 
 // REQ-0015
 func TestMask_RedactsSecrets(t *testing.T) {
