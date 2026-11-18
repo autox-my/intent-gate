@@ -19,7 +19,27 @@ A lock is created in exactly one of three ways. All three go through the same pi
 6. **Confirm**: the human approves, edits or rejects.
 7. **Write** `.intent/<id>.yml` and the local root intent record (intent-lock.md §1).
 
-Nothing is written before step 6. A rejection leaves no files.
+Nothing is written to the repo or the root intent store before step 6. A rejection leaves no lock and no root intent record (the hook's pending record is temporary, §2).
+
+### 1.1 Drafting criteria (step 3)
+
+The plan review is Phase 0's only model call (plan-review.md), so drafting is deterministic: the plan declares its criteria in one fenced block, and IntentGate parses it.
+
+````markdown
+```intentgate
+criteria:
+  - text: "Lock validation rejects more than 8 criteria"
+    footprint: ["internal/lock/**"]
+  - text: "Footprint findings carry an amend command"
+    footprint: ["internal/footprint/**", "!internal/footprint/testdata/**"]
+```
+````
+
+- Exactly one ` ```intentgate ` block; none, or more than one, is a drafting error. YAML inside, unknown keys rejected; each criterion has `text` and `footprint` only. Ids `C1`, `C2`, … are assigned in order.
+- More than 8 criteria is a drafting error asking for the plan to be split (REQ-0007); it is never truncated.
+- A drafting error writes nothing. The hook reports it as a `systemMessage` ("no lock: …"); the CLI exits 1 with the same message.
+- Agents learn the format from a snippet in the repo's agent instructions (`intentgate init` prints it; later slice).
+
 
 ## 2. Plan-approval hook (REQ-0002), method `hook`
 
@@ -27,12 +47,19 @@ Phase 0 ships one hook, for Claude Code.
 
 | Hook event | Matcher | What it does |
 |---|---|---|
-| `PreToolUse` | `ExitPlanMode` | Steps 1–5: reads the plan from the tool input and the human turns from the session transcript, runs the plan review, and returns the findings as a message the human sees beside the approval prompt. Records the start time. |
-| `PostToolUse` | `ExitPlanMode` | Steps 6–7: only runs if the human approved. Writes the lock. |
+| `PreToolUse` | `ExitPlanMode` | Steps 1–5: reads the plan from `tool_input.plan` and the human turns from `transcript_path`, masks secrets, drafts the criteria (§1.1), runs the plan review, and shows the criteria and findings to the human as `systemMessage`. Saves a pending record keyed by `session_id` + `tool_use_id` with its finish time. Never denies: on any error it fails open with a `systemMessage`. |
+| `PostToolUse` | `ExitPlanMode` | Steps 6–7: fires only when the human approved. Reads the approved plan from `tool_response.plan` (it wins over the pending copy if they differ, and is re-drafted), writes the lock and the root intent record, and deletes the pending record. |
 
 The human's click on Claude Code's own approval prompt **is** the confirmation. The agent can't click it, which is why this path counts as human-ratified without any extra step (v2 review §0).
 
-**To verify before implementation:** the exact hook input fields (plan text, transcript path), whether `PreToolUse` output is displayed to the human before the approval prompt, and what happens on rejection. If `PreToolUse` can't show findings in time, the fallback is to run the plan review in `PostToolUse` and append the findings to the lock as `plan_review:` for the PR reviewer. That's weaker, because it comes after approval, but it still meets REQ-0016–0020.
+**Verified 2026-11-18** (Claude Code hooks reference, code.claude.com/docs/en/hooks, and an experiment on Claude Code 2.1.327):
+
+- Input: `tool_input.plan` and `tool_input.planFilePath` in `PreToolUse`; `tool_response.plan` and `tool_response.filePath` in `PostToolUse`; both carry `session_id`, `transcript_path`, `cwd`, `tool_use_id`.
+- Rejection: a denied `ExitPlanMode` fires `PreToolUse` but neither `PostToolUse` nor `PostToolUseFailure`. So `PostToolUse` firing means approval, and a rejection leaves only a pending record. Pending records older than 24 hours are deleted on the next hook run, so rejected plans leave nothing behind for long.
+- Display: `systemMessage` is documented as "shown to the user"; `additionalContext` and exit-2 stderr go only to the model. Whether the `systemMessage` renders *before* the interactive plan prompt in the terminal UI is undocumented. It is checked by hand in the plan-review slice; if it doesn't, the plan-review fallback below applies. Ratification itself doesn't depend on it.
+- Timeouts: command hooks default to 600 s, and a timed-out `PreToolUse` doesn't block the tool call. The `PreToolUse` hook is installed with a 60 s timeout, and the plan review inside it has its own shorter one (plan-review.md).
+
+**Fallback for the plan review only:** if `PreToolUse` can't show findings in time, run the plan review in `PostToolUse` and append the findings to the lock as `plan_review:` for the PR reviewer. That's weaker, because it comes after approval, but it still meets REQ-0016–0020.
 
 Hooks for Codex, Cursor, Kiro and Spec Kit are Phase 2.
 

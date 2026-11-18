@@ -15,7 +15,7 @@ IntentGate ships as a CLI that runs in three places: inside agent hooks on every
 
 - One static binary, cross-compiled trivially: fast hook start-up, simple CI and air-gapped installs.
 - Mature libraries for what Phase 0–1.5 needs: `go-github` and `ghinstallation` for GitHub, `doublestar` for globs, gitleaks' detection library for the secret scan (REQ-0015).
-- open-code-review is written in Go, which may let Phase 1 reuse its deterministic packet-building code. **Check its license, and whether that code is importable (not under `internal/`), before relying on it.**
+- open-code-review (github.com/alibaba/open-code-review, Apache-2.0) is written in Go, but every library package is under `internal/`, so it can't be imported (checked 2026-11-18). Reusing it means calling its CLI, or vendoring code under Apache-2.0 with attribution. The choice of Go doesn't rely on it.
 - Python has the best tools for calibration maths and labeling work, which is offline research tooling.
 
 ## Consequences

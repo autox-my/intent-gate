@@ -33,6 +33,7 @@ base_ref: main                       # PR base branch at ratification (REQ-0021)
 root_intent:
   sha256: 9f2c…                      # hash of the verbatim root intent (REQ-0006, REQ-0014)
   source: claude-code-session        # claude-code-session | issue | plan-file
+  redactions: 0                      # secrets masked before hashing (REQ-0015, ratification.md §5)
 criteria:                            # 1..8 items (REQ-0007)
   - id: C1
     text: "Footprint findings are published as SARIF."
@@ -40,7 +41,7 @@ criteria:                            # 1..8 items (REQ-0007)
       - "internal/report/**"
       - "!internal/report/legacy/**"
 ratification:
-  ratifier: "github:octocat"         # identity (REQ-0009)
+  ratifier: "github:octocat"         # identity (REQ-0009): github:<login> (issue path) or git:<user.email> (local)
   ratified_at: 2026-11-18T09:14:03Z  # RFC 3339 UTC (REQ-0010)
   method: hook                       # hook | cli-confirm | issue (REQ-0011, ADR 0003)
   review_duration_ms: 48210          # REQ-0012, see ratification.md §4
