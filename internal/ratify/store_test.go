@@ -293,6 +293,61 @@ func TestStore_Amend(t *testing.T) {
 		})
 	}
 
+	// Review 1 of S-05: the amendments of next are old's, unchanged, plus exactly one new entry.
+	// thirdFrom is second amended again (revision 3, glob docs/more/**), re-hashed.
+	thirdFrom := func(t *testing.T, second lock.Lock, mutate func(n *lock.Lock)) lock.Lock {
+		t.Helper()
+		next := second
+		next.Revision = second.Revision + 1
+		next.Criteria = []lock.Criterion{{ID: "C1", Text: second.Criteria[0].Text, Footprint: append(append([]string(nil), second.Criteria[0].Footprint...), "docs/more/**")}}
+		next.Amendments = append(append([]lock.Amendment(nil), second.Amendments...), lock.Amendment{
+			Revision: next.Revision, Kind: "add-glob", Criterion: "C1", Glob: "docs/more/**",
+			By: "git:dev@example.com", At: "2026-11-20T10:00:00Z", Method: "cli-confirm",
+		})
+		if mutate != nil {
+			mutate(&next)
+		}
+		h, err := lock.Hash(next)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next.Hash = h
+		return next
+	}
+	secondRevision := func(t *testing.T) (Store, lock.Lock, string) {
+		t.Helper()
+		st, first, path, _ := setup(t)
+		second := amendedFrom(t, first)
+		if err := st.Amend(first, second); err != nil {
+			t.Fatalf("first Amend: %v", err)
+		}
+		return st, second, path
+	}
+	t.Run("a second amendment that only appends is accepted", func(t *testing.T) {
+		st, second, _ := secondRevision(t)
+		if err := st.Amend(second, thirdFrom(t, second, nil)); err != nil {
+			t.Fatalf("Amend: %v", err)
+		}
+	})
+	for name, mutate := range map[string]func(n *lock.Lock){
+		"an earlier amendment's by rewritten": func(n *lock.Lock) { n.Amendments[0].By = "git:someone-else@example.com" },
+		"an earlier amendment's at rewritten": func(n *lock.Lock) { n.Amendments[0].At = "2026-11-19T10:00:01Z" },
+		"an earlier amendment's method":       func(n *lock.Lock) { n.Amendments[0].Method = "hook" },
+		"an earlier amendment dropped":        func(n *lock.Lock) { n.Amendments = n.Amendments[1:] },
+		"the new entry's revision not new's":  func(n *lock.Lock) { n.Amendments[len(n.Amendments)-1].Revision = 2 },
+	} {
+		t.Run("refuses "+name+", even re-hashed", func(t *testing.T) {
+			st, second, path := secondRevision(t)
+			before, _ := os.ReadFile(path)
+			if err := st.Amend(second, thirdFrom(t, second, mutate)); err == nil {
+				t.Fatal("Amend returned nil")
+			}
+			if after, _ := os.ReadFile(path); !reflect.DeepEqual(before, after) {
+				t.Errorf("the lock file changed:\n%s", after)
+			}
+		})
+	}
+
 	t.Run("refuses when there is no lock to replace", func(t *testing.T) {
 		repo, state := emptyDirs(t)
 		old := builtLock(t, text)

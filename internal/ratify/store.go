@@ -123,7 +123,8 @@ func createExclusive(path string, data []byte, mode os.FileMode) (err error) {
 
 // Amend replaces the committed lock <RepoRoot>/.intent/<id>.yml with next, which is old amended
 // (ratification.md §3, footprint-check.md §5). It refuses, changing nothing, unless: next has old's
-// id and root_intent, next.Revision is old.Revision+1, the file on disk still parses, verifies and
+// id and root_intent, next.Revision is old.Revision+1, next.Amendments is old.Amendments unchanged
+// plus exactly one appended entry whose revision is next.Revision (history is append-only), the file on disk still parses, verifies and
 // hashes to old.Hash (nobody changed the lock since old was read), and next validates and verifies.
 // The new file is written to a temp file next to it and renamed over it, so a reader sees the old
 // lock or the new one. The root intent record under StateDir is never touched.
@@ -136,6 +137,10 @@ func (s Store) Amend(old, next lock.Lock) error {
 	}
 	if next.Revision != old.Revision+1 {
 		return fmt.Errorf("ratify: refusing to amend: revision must be %d, got %d", old.Revision+1, next.Revision)
+	}
+	if n := len(old.Amendments); len(next.Amendments) != n+1 ||
+		!amendmentsEqual(next.Amendments[:n], old.Amendments) || next.Amendments[n].Revision != next.Revision {
+		return errors.New("ratify: refusing to amend: amendments must be the old ones unchanged plus exactly one new entry for the new revision")
 	}
 	if ps := lock.Validate(next); len(ps) > 0 {
 		return fmt.Errorf("ratify: refusing to write an invalid lock: %s", ps[0])
@@ -164,6 +169,19 @@ func (s Store) Amend(old, next lock.Lock) error {
 		return err
 	}
 	return replaceAtomic(path, data, 0o644)
+}
+
+// amendmentsEqual compares two amendment lists field by field (Amendment holds only comparable fields).
+func amendmentsEqual(a, b []lock.Amendment) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func sameRootIntent(a, b lock.RootIntent) bool {
