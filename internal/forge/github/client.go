@@ -21,8 +21,8 @@ const (
 	maxPages   = 1000     // a bound on Link: rel="next" chains, so a bad server can't loop us
 )
 
-// Client talks to the GitHub REST API at BaseURL with Token. A nil HTTP means a client with a 30 s
-// request timeout. The token is only ever sent as the Authorization header of a request to BaseURL's
+// Client talks to the GitHub REST API at BaseURL with Token. BaseURL must be https (http only for a
+// loopback host) and no redirect is followed. A nil HTTP means a client with a 30 s request timeout. The token is only ever sent as the Authorization header of a request to BaseURL's
 // host, and never appears in an error.
 type Client struct {
 	BaseURL string
@@ -109,18 +109,55 @@ func (c *Client) repoPath(owner, repo string, n int, suffix string) string {
 	return fmt.Sprintf("/repos/%s/%s/issues/%d%s", url.PathEscape(owner), url.PathEscape(repo), n, suffix)
 }
 
+// apiBase parses BaseURL and refuses any that would send the token in the clear: it must be https,
+// except a loopback host (127.0.0.1, ::1, localhost) for tests, and carry no credentials.
+func apiBase(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimRight(raw, "/"))
+	if err != nil || u.Host == "" || u.Hostname() == "" || u.User != nil {
+		return nil, fmt.Errorf("github: bad API URL %q", raw)
+	}
+	switch u.Scheme {
+	case "https":
+	case "http":
+		if !isLoopback(u.Hostname()) {
+			return nil, fmt.Errorf("github: refusing API URL %q: the token only travels over https (http is allowed only for 127.0.0.1, ::1 and localhost)", raw)
+		}
+	default:
+		return nil, fmt.Errorf("github: bad API URL %q: want an https URL", raw)
+	}
+	return u, nil
+}
+
+func isLoopback(host string) bool {
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "::1", "localhost":
+		return true
+	}
+	return false
+}
+
+// noRedirect is CheckRedirect: a redirect is an error naming its status and target host, never the
+// token. The Authorization header is never re-sent to wherever a server points us.
+func noRedirect(req *http.Request, via []*http.Request) error {
+	status := 0
+	if len(via) > 0 && req.Response != nil {
+		status = req.Response.StatusCode
+	}
+	return fmt.Errorf("refusing to follow a %d redirect to host %q", status, req.URL.Host)
+}
+
 // get fetches target (a path with an optional query, or an absolute URL from a Link header) and
 // decodes the JSON body into out. A non-2xx is an error with the status and GitHub's message.
 func (c *Client) get(ctx context.Context, target string, out any) (http.Header, error) {
-	base, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
-	if err != nil || base.Host == "" {
-		return nil, fmt.Errorf("github: bad API URL %q", c.BaseURL)
+	base, err := apiBase(c.BaseURL)
+	if err != nil {
+		return nil, err
 	}
 	full := base.String() + target
 	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
 		u, err := url.Parse(target)
-		if err != nil || u.Host != base.Host {
-			return nil, fmt.Errorf("github: refusing to follow a link to another host: %q", target)
+		if err != nil || u.User != nil || u.Scheme != base.Scheme || !strings.EqualFold(u.Host, base.Host) {
+			return nil, fmt.Errorf("github: refusing to follow a link that is not on %s://%s: %q", base.Scheme, base.Host, target)
 		}
 		full = target
 	}
@@ -133,10 +170,12 @@ func (c *Client) get(ctx context.Context, target string, out any) (http.Header, 
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("User-Agent", userAgent)
 
-	hc := c.HTTP
-	if hc == nil {
-		hc = &http.Client{Timeout: timeout}
+	hc := &http.Client{Timeout: timeout}
+	if c.HTTP != nil {
+		cp := *c.HTTP
+		hc = &cp
 	}
+	hc.CheckRedirect = noRedirect
 	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
