@@ -59,7 +59,9 @@ func ParseConfig(data []byte) (Config, error) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	var fc fileConfig
-	if err := dec.Decode(&fc); err != nil {
+	if err := dec.Decode(&fc); errors.Is(err, io.EOF) {
+		return Config{}, errors.New("footprint: .intentgate.yml: version is missing (the file has no keys; it must say `version: 1`)")
+	} else if err != nil {
 		return Config{}, fmt.Errorf("footprint: .intentgate.yml: %w", err)
 	}
 	var extra yaml.Node
@@ -85,12 +87,13 @@ func ParseConfig(data []byte) (Config, error) {
 // resolve returns the default globs adjusted by Add and Remove, validating both.
 func (cfg Config) resolve() ([]string, error) {
 	globs := defaultGlobs()
+	seen := map[string]bool{}
 	for _, r := range cfg.Remove {
-		idx := indexOf(globs, r)
-		if idx < 0 && indexOf(lockfileNames, r) >= 0 {
-			// a lockfile may be removed by its bare name as well as by its `**/name` glob
-			idx = indexOf(globs, "**/"+r)
+		if seen[r] {
+			return nil, fmt.Errorf("footprint: .intentgate.yml: remove %q: duplicate entry", r)
 		}
+		seen[r] = true
+		idx := indexOf(globs, r)
 		if idx < 0 {
 			return nil, fmt.Errorf("footprint: .intentgate.yml: remove %q is not one of the default globs", r)
 		}

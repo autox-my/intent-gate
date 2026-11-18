@@ -520,6 +520,7 @@ implicit_footprints:
 	})
 
 	errCases := []struct{ name, doc string }{
+		{"remove of a bare lockfile name", "version: 1\nimplicit_footprints:\n  remove: [\"go.sum\"]\n"},
 		{"remove of a non-default", "version: 1\nimplicit_footprints:\n  remove: [\"src/**\"]\n"},
 		{"remove typo", "version: 1\nimplicit_footprints:\n  remove: [\"**/dst/**\"]\n"},
 		{"unknown top-level key", "version: 1\nfoo: 1\n"},
@@ -542,6 +543,22 @@ implicit_footprints:
 			}
 		})
 	}
+
+	t.Run("error messages", func(t *testing.T) {
+		cases := []struct{ name, doc, want string }{
+			{"duplicate remove", "version: 1\nimplicit_footprints:\n  remove: [\"**/dist/**\", \"**/dist/**\"]\n", "duplicate"},
+			{"comment-only file", "# nothing here\n", "version"},
+			{"document separator only", "---\n", "version"},
+		}
+		for _, c := range cases {
+			_, err := ParseConfig([]byte(c.doc))
+			if err == nil {
+				t.Errorf("%s: ParseConfig(%q) succeeded, want an error", c.name, c.doc)
+			} else if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("%s: error %q does not mention %q", c.name, err, c.want)
+			}
+		}
+	})
 
 	t.Run("NewImplicit rejects a config that was not parsed", func(t *testing.T) {
 		if _, err := NewImplicit(Config{Add: []string{"[bad"}}, nil); err == nil {
