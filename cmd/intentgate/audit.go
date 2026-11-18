@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"intentgate/internal/audit"
@@ -35,12 +36,30 @@ func appendAudit(stateDir string, e audit.Event, stderr io.Writer) {
 	}
 }
 
+// writeAudit appends one line to <stateDir>/audit.jsonl. The log is opened without following a
+// symlink, must be a regular file, and is set to 0600 after opening, so a looser existing file is
+// tightened and a planted link or special file is refused with nothing written. O_NONBLOCK keeps a
+// FIFO from blocking the open; it does nothing to a regular file.
 func writeAudit(stateDir string, line []byte) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(stateDir, auditLogFile), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	path := filepath.Join(stateDir, auditLogFile)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
+		return err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
 		return err
 	}
 	if _, err := f.Write(line); err != nil {
