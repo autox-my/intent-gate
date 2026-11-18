@@ -21,9 +21,10 @@ type Store struct {
 }
 
 // Write stores the root intent record <StateDir>/locks/<id>/root-intent.md (0600, directories 0700)
-// and then the lock <RepoRoot>/.intent/<id>.yml, each by temp file and rename in its own directory.
-// It refuses, writing nothing, when the lock is invalid or its hash doesn't verify, when the SHA-256
-// of maskedRootIntent isn't l.RootIntent.SHA256, or when a lock with this id already exists.
+// and then the lock <RepoRoot>/.intent/<id>.yml, each created exclusively (never overwritten). It
+// refuses, writing nothing, when the lock is invalid or its hash doesn't verify, when the SHA-256
+// of maskedRootIntent isn't l.RootIntent.SHA256, or when either file for this id already exists. If
+// the lock can't be written, the record this call wrote is removed again.
 func (s Store) Write(l lock.Lock, maskedRootIntent Masked) error {
 	if ps := lock.Validate(l); len(ps) > 0 {
 		return fmt.Errorf("ratify: refusing to write an invalid lock: %s", ps[0])
@@ -52,49 +53,69 @@ func (s Store) Write(l lock.Lock, maskedRootIntent Masked) error {
 	if err := os.MkdirAll(recDir, 0o700); err != nil {
 		return fmt.Errorf("ratify: %w", err)
 	}
-	if err := writeFile(filepath.Join(recDir, "root-intent.md"), []byte(maskedRootIntent.text), 0o600, true); err != nil {
+	recPath := filepath.Join(recDir, "root-intent.md")
+	if err := createExclusive(recPath, []byte(maskedRootIntent.text), 0o600); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		_ = os.Remove(recPath)
 		return fmt.Errorf("ratify: %w", err)
 	}
-	return writeFile(lockPath, data, 0o644, false)
+	if err := createExclusive(lockPath, data, 0o644); err != nil {
+		_ = os.Remove(recPath) // the record is ours: createExclusive got it, so no earlier lock owns it
+		return err
+	}
+	return nil
 }
 
-// writeFile writes data to a temp file in path's directory and puts it at path. With replace it
-// renames over an existing file; without, it links the temp file into place, which fails if path
-// exists (so a concurrent writer of the same lock id can't be overwritten).
-func writeFile(path string, data []byte, mode os.FileMode, replace bool) error {
+// createExclusive puts data at path with the given mode, and fails if path already exists, so
+// neither the root intent record nor a lock can ever be overwritten. The bytes go to a temp file in
+// path's directory first; the target is then created with O_CREATE|O_EXCL and filled from them, and
+// removed again if that fails.
+func createExclusive(path string, data []byte, mode os.FileMode) (err error) {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
 	if err != nil {
 		return fmt.Errorf("ratify: %w", err)
 	}
-	name := tmp.Name()
-	defer os.Remove(name)
+	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("ratify: %w", err)
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return fmt.Errorf("ratify: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return fmt.Errorf("ratify: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("ratify: %w", err)
 	}
-	if replace {
-		err = os.Rename(name, path)
-	} else {
-		err = os.Link(name, path)
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("ratify: %s already exists", path)
-		}
+
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("ratify: %s already exists", path)
 	}
 	if err != nil {
+		return fmt.Errorf("ratify: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(path)
+		}
+	}()
+	src, err := os.ReadFile(tmp.Name())
+	if err != nil {
+		f.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if _, err := f.Write(src); err != nil {
+		f.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err := f.Chmod(mode); err != nil { // the umask may have narrowed the mode; make it exact
+		f.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err := f.Close(); err != nil {
 		return fmt.Errorf("ratify: %w", err)
 	}
 	return nil

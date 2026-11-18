@@ -118,4 +118,42 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 			t.Fatal("a refused write changed the stored files")
 		}
 	})
+	t.Run("the root-intent record is never overwritten, even when the lock file is gone", func(t *testing.T) {
+		repo, state := emptyDirs(t)
+		s := Store{RepoRoot: repo, StateDir: state}
+		first := builtLock(t, text)
+		if err := s.Write(first, masked(text)); err != nil {
+			t.Fatal(err)
+		}
+		lockPath := filepath.Join(repo, ".intent", testID+".yml")
+		recPath := filepath.Join(state, "locks", testID, "root-intent.md")
+		if err := os.Remove(lockPath); err != nil {
+			t.Fatal(err)
+		}
+		other := "different intent\n"
+		if err := s.Write(builtLock(t, other), masked(other)); err == nil {
+			t.Fatal("Write overwrote the root-intent record of an existing id")
+		}
+		if rec, _ := os.ReadFile(recPath); string(rec) != text {
+			t.Fatalf("the record changed to %q", rec)
+		}
+		if _, err := os.Stat(lockPath); err == nil {
+			t.Fatal("a lock was written beside a record that was not")
+		}
+	})
+	t.Run("a failed lock write leaves no record behind", func(t *testing.T) {
+		repo, state := emptyDirs(t)
+		// .intent is read-only, so the lock cannot be created after the record was
+		dir := filepath.Join(repo, ".intent")
+		if err := os.Mkdir(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		if err := (Store{RepoRoot: repo, StateDir: state}).Write(builtLock(t, text), masked(text)); err == nil {
+			t.Fatal("Write succeeded")
+		}
+		if _, err := os.Stat(filepath.Join(state, "locks", testID, "root-intent.md")); err == nil {
+			t.Fatal("the record of a lock that was not written is still there")
+		}
+	})
 }
