@@ -61,7 +61,7 @@ What `method: hook` attests is that Claude Code's hook runner called `post` afte
 - Display: `systemMessage` is documented as "shown to the user"; `additionalContext` and exit-2 stderr go only to the model. Whether the `systemMessage` renders *before* the interactive plan prompt in the terminal UI is undocumented. It is checked by hand in the plan-review slice; if it doesn't, the plan-review fallback below applies. Ratification itself doesn't depend on it.
 - Timeouts: command hooks default to 600 s, and a timed-out `PreToolUse` doesn't block the tool call. The `PreToolUse` hook is installed with a 60 s timeout, and the plan review inside it has its own shorter one (plan-review.md).
 
-**Fallback for the plan review only:** if `PreToolUse` can't show findings in time, run the plan review in `PostToolUse` and append the findings to the lock as `plan_review:` for the PR reviewer. That's weaker, because it comes after approval, but it still meets REQ-0016–0020.
+**Fallback for the plan review only:** if `PreToolUse` can't show findings in time, run the plan review in `PostToolUse` and record its status and counts in the lock's `plan_review:` (plan-review.md §4), showing the findings in the `PostToolUse` message. That's weaker, because it comes after approval, but it still meets REQ-0016–0020.
 
 Hooks for Codex, Cursor, Kiro and Spec Kit are Phase 2.
 

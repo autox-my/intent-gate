@@ -42,4 +42,8 @@ The whole review runs under a **5-second context deadline**. When the deadline p
 
 ## 4. Never blocking (REQ-0020)
 
-Every status (`complete`, `partial`, `unavailable`, `error`) lets ratification proceed. The findings are shown to the human, and the status is recorded in the lock as `plan_review.status`, but no outcome refuses or delays the lock.
+Every status (`complete`, `partial`, `unavailable`, `error`) lets ratification proceed. The findings are shown to the human, and the lock records `plan_review: {status, omissions, additions, weakenings}`: the status and the three counts, never finding text, because findings quote the root intent and the committed lock must not contain it (REQ-0014). No outcome refuses or delays the lock.
+
+## 5. Where it runs
+
+On the ratifier's machine only: in the hook's `PreToolUse` and before the `yes` prompt of `intentgate lock`. The PR check in CI makes no model call, so Phase 0 needs no model credentials in GitHub. The provider is chosen from the environment of the machine that ratifies.
