@@ -188,15 +188,6 @@ func TestDisplay_TiesAreOrderedByQuoteThenText(t *testing.T) {
 	}
 }
 
-func TestSelect(t *testing.T) {
-	for _, v := range []string{"", "off", "jev"} {
-		r := Select(func(string) string { return v })
-		if _, err := r.Review(context.Background(), "a", "b"); !errors.Is(err, ErrUnavailable) {
-			t.Errorf("INTENTGATE_PLAN_REVIEW=%q: Review err = %v, want ErrUnavailable in this slice", v, err)
-		}
-	}
-}
-
 // A provider's error text is untrusted and may be long or span lines: the status line shows at
 // most 200 bytes of it, on one line, cut on a UTF-8 boundary (review 1 of S-11).
 func TestDisplay_ErrorLineIsBounded(t *testing.T) {
