@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentgate.dev/schema/intentgate.audit.v1.json",
+  "title": "IntentGate audit event",
+  "description": "One event of schema intentgate.audit/1: `audit.json` in the out dir of `intentgate verify`, and one line of <state>/audit.jsonl for every local `verify`, `lock` and `amend`. It holds ids, hashes and counts only: no code, diff, criterion text, footprint or root intent text. Every key is always present; a value that does not apply to the event kind is an empty string, or 0 for pr and exit_code, and a lock without a review duration has null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "event", "at", "repo", "pr", "base_sha", "head_sha", "base_branch", "author", "author_type", "intentgate_version", "config_sha256", "verify_sha256", "locks", "outcome", "exit_code", "conclusion"],
+  "properties": {
+    "schema": { "const": "intentgate.audit/1" },
+    "event": { "enum": ["verify", "lock", "amend"] },
+    "at": { "description": "Wall clock, UTC, whole seconds.", "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "repo": { "description": "owner/name from --repo (verify) or the origin remote (lock, amend); empty when unknown.", "type": "string" },
+    "pr": { "description": "The pull request number from --pr; 0 when not given or not a verify event.", "type": "integer", "minimum": 0 },
+    "base_sha": { "description": "verify only: the full commit the base revision resolved to.", "type": "string" },
+    "head_sha": { "description": "verify only: the full commit the head revision resolved to.", "type": "string" },
+    "base_branch": { "description": "verify only: the --base-branch value.", "type": "string" },
+    "author": { "description": "verify only: the --author value.", "type": "string" },
+    "author_type": { "description": "verify only: the --author-type value.", "type": "string" },
+    "intentgate_version": { "type": "string" },
+    "config_sha256": { "description": "verify only: hex SHA-256 of .intentgate.yml at head (of nothing when the file is absent).", "type": "string" },
+    "verify_sha256": { "description": "verify only: hex SHA-256 of the bytes of the run's verify.json. `verify --replay` compares a fresh run against it.", "type": "string" },
+    "locks": {
+      "description": "verify: the lock files at head that parse. lock, amend: the one lock written. Sorted by id.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "revision", "hash", "ratification_method", "review_duration_ms"],
+        "properties": {
+          "id": { "type": "string" },
+          "revision": { "type": "integer", "minimum": 0 },
+          "hash": { "description": "The lock's own hash, sha256:<hex>.", "type": "string" },
+          "ratification_method": { "description": "ratification.method of the lock (REQ-0042).", "type": "string" },
+          "review_duration_ms": { "type": ["integer", "null"], "minimum": 0 }
+        }
+      }
+    },
+    "outcome": { "description": "verify: the outcome of verify.json. lock, amend: written.", "type": "string" },
+    "exit_code": { "description": "verify: 0, 1 or 3. lock, amend: 0.", "type": "integer", "enum": [0, 1, 3] },
+    "conclusion": { "description": "verify: the check run's conclusion. lock, amend: empty.", "type": "string" }
+  }
+}

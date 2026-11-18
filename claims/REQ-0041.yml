@@ -11,3 +11,5 @@ rationale:
   rejected_alternatives: []
   assumptions: []
 relations: []
+tests:
+  - "intentgate/cmd/intentgate::TestStats_AmendmentRate"

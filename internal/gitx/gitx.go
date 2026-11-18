@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -286,5 +287,75 @@ type LockAddition struct {
 	Time   time.Time // the commit's committer time, UTC
 }
 
-// LockAdditions lists the lock files that first-parent history of rev added. Stub: the red commit of S-10.
-func LockAdditions(dir, rev string) ([]LockAddition, error) { return nil, nil }
+// LockAdditions lists the lock files (.intent/<name>.yml) that the first-parent history of rev
+// added, each with the commit that added it and that commit's committer time. A merge commit counts
+// for the locks its side branch brought in, at the merge commit's own time. A file that was removed
+// and added again is listed once, at its newest addition. The list is newest first, then by path.
+func LockAdditions(dir, rev string) ([]LockAddition, error) {
+	if err := checkRev(rev); err != nil {
+		return nil, err
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.run("log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--diff-filter=A",
+		"--name-only", "--no-ext-diff", "--no-textconv", "--format=%H%x00%ct", "-z", rev, "--", ".intent/")
+	if err != nil {
+		return nil, err
+	}
+	// Per commit: <hash> NUL <ct> NUL LF <path> NUL <path> NUL ... A path always starts with
+	// ".intent/", which a hash never does, so a header is told from a path by that prefix.
+	toks := strings.Split(string(out), "\x00")
+	adds := []LockAddition{}
+	seen := map[string]bool{}
+	var commit string
+	var when time.Time
+	for i := 0; i < len(toks); i++ {
+		tok := strings.TrimPrefix(toks[i], "\n")
+		switch {
+		case tok == "":
+		case strings.HasPrefix(tok, ".intent/"):
+			if commit == "" {
+				return nil, fmt.Errorf("git log: cannot parse the output near %q", tok)
+			}
+			if name := strings.TrimPrefix(tok, ".intent/"); strings.HasSuffix(name, ".yml") && !strings.Contains(name, "/") && !seen[tok] {
+				seen[tok] = true
+				adds = append(adds, LockAddition{Path: tok, Commit: commit, Time: when})
+			}
+		default:
+			if i+1 >= len(toks) {
+				return nil, fmt.Errorf("git log: cannot parse the output near %q", tok)
+			}
+			secs, err := strconv.ParseInt(toks[i+1], 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("git log: cannot read the commit time of %s: %w", tok, err)
+			}
+			commit, when = tok, time.Unix(secs, 0).UTC()
+			i++
+		}
+	}
+	sort.SliceStable(adds, func(i, j int) bool {
+		if !adds[i].Time.Equal(adds[j].Time) {
+			return adds[i].Time.After(adds[j].Time)
+		}
+		return adds[i].Path < adds[j].Path
+	})
+	return adds, nil
+}
+
+// Resolve returns the full object name of the commit rev names.
+func Resolve(dir, rev string) (string, error) {
+	if err := checkRev(rev); err != nil {
+		return "", err
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return "", err
+	}
+	out, err := r.run("rev-parse", "--verify", "--end-of-options", rev+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}

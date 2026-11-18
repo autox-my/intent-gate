@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"intentgate/internal/audit"
 	"intentgate/internal/ids"
 	"intentgate/internal/lock"
 	"intentgate/internal/ratify"
@@ -246,6 +247,7 @@ func (t *term) confirmAndWrite(p pending) int {
 	if err := (ratify.Store{RepoRoot: p.Top, StateDir: deps.StateDir}).Write(l, masked); err != nil {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
+	auditLockWritten(deps, audit.EventLock, l, answered, p.Top)
 	fmt.Fprintf(t.out, "intent lock written: .intent/%s.yml\n", l.ID)
 	return exitOK
 }
@@ -405,6 +407,7 @@ func runAmend(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 	if err := (ratify.Store{RepoRoot: top, StateDir: deps.StateDir}).Amend(old, next); err != nil {
 		return t.fail(exitUnverifiable, "intentgate amend: %v", err)
 	}
+	auditLockWritten(deps, audit.EventAmend, next, answered, top)
 	fmt.Fprintf(t.out, "intent lock amended: .intent/%s.yml (revision %d)\n", id, next.Revision)
 	return exitOK
 }

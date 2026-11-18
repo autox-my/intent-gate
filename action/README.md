@@ -6,7 +6,8 @@ and publishes the result:
 - one check run named `IntentGate`, updated in place when the check runs again for the same commit;
 - at most one pull request comment, found by its hidden marker and edited in place;
 - the result in the job summary and, with `verify.json`, `results.sarif`, `summary.md`,
-  `comment.md` and `decision.json`, as the `intentgate` workflow artifact, on every run;
+  `comment.md`, `decision.json` and `audit.json` (the run's `intentgate.audit/1` audit event), as
+  the `intentgate` workflow artifact, on every run;
 - the footprint findings as SARIF, uploaded with `github/codeql-action/upload-sarif` (category
   `intentgate`), so they show in code scanning and as annotations.
 

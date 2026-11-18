@@ -97,7 +97,7 @@ func (r *vrepo) stats(args ...string) (code int, stdout, stderr string) {
 	return code, out.String(), errb.String()
 }
 
-type statsDoc struct {
+type statsOut struct {
 	Schema         string `json:"schema"`
 	SinceDays      int    `json:"since_days"`
 	WindowStart    string `json:"window_start"`
@@ -124,7 +124,7 @@ func TestStats_AmendmentRate(t *testing.T) {
 		if code != 0 || stderr != "" {
 			t.Fatalf("exit %d, stderr %q, stdout %q", code, stderr, stdout)
 		}
-		var d statsDoc
+		var d statsOut
 		if err := json.Unmarshal([]byte(stdout), &d); err != nil {
 			t.Fatalf("stdout %q: %v", stdout, err)
 		}
@@ -168,7 +168,7 @@ func TestStats_AmendmentRate(t *testing.T) {
 
 	t.Run("a wider window takes in the old lock", func(t *testing.T) {
 		code, stdout, _ := r.stats("--since", "90d", "--format", "json")
-		var d statsDoc
+		var d statsOut
 		if err := json.Unmarshal([]byte(stdout), &d); code != 0 || err != nil {
 			t.Fatalf("exit %d, %v", code, err)
 		}
@@ -182,7 +182,7 @@ func TestStats_AmendmentRate(t *testing.T) {
 		r.git("rm", "-q", lockPath(statsPlain))
 		r.commit("remove", statsHead.Add(time.Hour))
 		_, stdout, _ := r.stats("--format", "json")
-		var d statsDoc
+		var d statsOut
 		if err := json.Unmarshal([]byte(stdout), &d); err != nil || d.Locks != 2 || d.AmendmentRatio != "1/2" {
 			t.Errorf("stdout %q: locks %d ratio %q, %v; want 2 locks and 1/2", stdout, d.Locks, d.AmendmentRatio, err)
 		}
@@ -190,7 +190,7 @@ func TestStats_AmendmentRate(t *testing.T) {
 
 	t.Run("no lock in the window: the rate is n/a, not 0", func(t *testing.T) {
 		code, stdout, stderr := r.stats("--since", "1d", "--format", "json")
-		var d statsDoc
+		var d statsOut
 		if err := json.Unmarshal([]byte(stdout), &d); code != 0 || err != nil {
 			t.Fatalf("exit %d, stderr %q, %v", code, stderr, err)
 		}
@@ -213,7 +213,7 @@ func TestStats_AmendmentRate(t *testing.T) {
 			r.commit("lock", statsHead.Add(time.Duration(i-4)*time.Hour))
 		}
 		_, stdout, _ := r.stats("--format", "json")
-		var d statsDoc
+		var d statsOut
 		if err := json.Unmarshal([]byte(stdout), &d); err != nil || d.MedianReviewDurationMS == nil || *d.MedianReviewDurationMS != 2000 {
 			t.Errorf("stdout %q: median %v, %v; want 2000 (the lower middle of 1000 2000 3000 4000)", stdout, d.MedianReviewDurationMS, err)
 		}

@@ -201,6 +201,7 @@ func TestAction_Static(t *testing.T) {
 			"BASE_REF":    "${{ github.event.pull_request.base.ref }}",
 			"AUTHOR":      "${{ github.event.pull_request.user.login }}",
 			"AUTHOR_TYPE": "${{ github.event.pull_request.user.type }}",
+			"PR_NUMBER":   "${{ github.event.pull_request.number }}",
 		}
 		for k, val := range want {
 			if v.Env[k] != val {
@@ -208,7 +209,7 @@ func TestAction_Static(t *testing.T) {
 			}
 		}
 		for _, frag := range []string{`verify`, `--base "$BASE_SHA"`, `--head "$HEAD_SHA"`, `--base-branch "$BASE_REF"`,
-			`--author "$AUTHOR"`, `--author-type "$AUTHOR_TYPE"`, `--out-dir "$RUNNER_TEMP/intentgate"`, `exit_code=`} {
+			`--author "$AUTHOR"`, `--author-type "$AUTHOR_TYPE"`, `--out-dir "$RUNNER_TEMP/intentgate"`, `--repo "$GITHUB_REPOSITORY"`, `--pr "$PR_NUMBER"`, `exit_code=`} {
 			if !strings.Contains(v.Run, frag) {
 				t.Errorf("verify run lacks %s", frag)
 			}
@@ -358,7 +359,7 @@ func TestAction_Static(t *testing.T) {
 				t.Errorf("exit %s, decision %q: GITHUB_OUTPUT = %q, want exit_code=%s and %s", tc.fakeExit, tc.fakeDecision, outputs, tc.fakeExit, tc.wantUpload)
 			}
 			args, _ := os.ReadFile(filepath.Join(tmp, "args-verify"))
-			want := "verify\n--base\nvalue-of-BASE_SHA\n--head\nvalue-of-HEAD_SHA\n--base-branch\nvalue-of-BASE_REF\n--author\nvalue-of-AUTHOR\n--author-type\nvalue-of-AUTHOR_TYPE\n--out-dir\n" + tmp + "/intentgate\n"
+			want := "verify\n--base\nvalue-of-BASE_SHA\n--head\nvalue-of-HEAD_SHA\n--base-branch\nvalue-of-BASE_REF\n--author\nvalue-of-AUTHOR\n--author-type\nvalue-of-AUTHOR_TYPE\n--out-dir\n" + tmp + "/intentgate\n--repo\nocto/repo\n--pr\nvalue-of-PR_NUMBER\n"
 			if string(args) != want {
 				t.Errorf("verify argv = %q, want %q", args, want)
 			}

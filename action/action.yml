@@ -64,10 +64,11 @@ runs:
         BASE_REF: ${{ github.event.pull_request.base.ref }}
         AUTHOR: ${{ github.event.pull_request.user.login }}
         AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         out="$RUNNER_TEMP/intentgate"
         rm -rf "$out"
-        if "$RUNNER_TEMP/intentgate-bin/intentgate" verify --base "$BASE_SHA" --head "$HEAD_SHA" --base-branch "$BASE_REF" --author "$AUTHOR" --author-type "$AUTHOR_TYPE" --out-dir "$RUNNER_TEMP/intentgate"; then
+        if "$RUNNER_TEMP/intentgate-bin/intentgate" verify --base "$BASE_SHA" --head "$HEAD_SHA" --base-branch "$BASE_REF" --author "$AUTHOR" --author-type "$AUTHOR_TYPE" --out-dir "$RUNNER_TEMP/intentgate" --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"; then
           code=0
         else
           code=$?

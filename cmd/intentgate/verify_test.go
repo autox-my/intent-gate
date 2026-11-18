@@ -649,7 +649,7 @@ func TestVerify_Deterministic(t *testing.T) {
 		}
 	}
 
-	t.Run("only the five files are written", func(t *testing.T) {
+	t.Run("only the five files and audit.json are written", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "a", "b")
 		if err := os.MkdirAll(out, 0o755); err != nil {
 			t.Fatal(err)
@@ -670,8 +670,8 @@ func TestVerify_Deterministic(t *testing.T) {
 			t.Error("verify.json was not overwritten")
 		}
 		entries, _ := os.ReadDir(out)
-		if len(entries) != 6 {
-			t.Errorf("%d entries in the out dir, want the five files and keep.txt", len(entries))
+		if len(entries) != 7 {
+			t.Errorf("%d entries in the out dir, want the five files, audit.json and keep.txt", len(entries))
 		}
 	})
 

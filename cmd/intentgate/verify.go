@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"intentgate/internal/audit"
 	"intentgate/internal/footprint"
 	"intentgate/internal/gitx"
+	"intentgate/internal/lock"
 	"intentgate/internal/policy"
 	"intentgate/internal/report"
 	"intentgate/internal/verify"
@@ -24,7 +28,9 @@ import (
 // Exit codes: the core's 0, 1 or 3; 2 for usage; 3 when git fails or an output cannot be written.
 
 const verifyUsage = "usage: intentgate verify --base <rev> --head <rev> --base-branch <name> [--author <login>]\n" +
-	"                         [--author-type <type>] [--format text|json|sarif|summary|comment] [--out-dir <dir>]\n"
+	"                         [--author-type <type>] [--format text|json|sarif|summary|comment] [--out-dir <dir>]\n" +
+	"                         [--repo <owner/name>] [--pr <n>]\n" +
+	"       intentgate verify --replay <event.json>\n"
 
 const (
 	lockDirPrefix  = ".intent/"
@@ -42,21 +48,30 @@ func runVerify(args []string, stdout io.Writer, deps Deps) int {
 	authorType := fs.String("author-type", "", "")
 	format := fs.String("format", "text", "")
 	outDir := fs.String("out-dir", "", "")
-	_ = fs.String("repo", "", "")   // S-10 stub
-	_ = fs.Int("pr", 0, "")         // S-10 stub
-	_ = fs.String("replay", "", "") // S-10 stub
+	repoFlag := fs.String("repo", "", "")
+	pr := fs.Int("pr", 0, "")
+	replayPath := fs.String("replay", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return t.usage(verifyUsage, "")
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["replay"] {
+		if len(set) > 1 || *replayPath == "" {
+			return t.usage(verifyUsage, "--replay takes an event file and no other flag")
+		}
+		return runReplay(t, *replayPath, deps)
 	}
 	switch *format {
 	case "text", "json", "sarif", "summary", "comment":
 	default:
 		return t.usage(verifyUsage, fmt.Sprintf("unknown --format %q", *format))
 	}
-	set := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	if *base == "" || *head == "" || *baseBranch == "" || (set["out-dir"] && *outDir == "") {
 		return t.usage(verifyUsage, "--base, --head and --base-branch are required")
+	}
+	if *pr < 0 || (set["repo"] && !validRepo(*repoFlag)) {
+		return t.usage(verifyUsage, "--repo is owner/name and --pr a pull request number")
 	}
 
 	in, err := readVerifyInput(deps.Dir, *base, *head, *baseBranch, *author, *authorType)
@@ -73,13 +88,89 @@ func runVerify(args []string, stdout io.Writer, deps Deps) int {
 		"summary": []byte(report.CheckSummary(res, dec)),
 		"comment": []byte(report.Comment(res, dec)),
 	}
+
+	// The audit event is the one thing here that reads the clock; no other output depends on it.
+	localLog := !inCI() && deps.StateDir != ""
+	var auditJSON []byte
+	var event audit.Event
+	if *outDir != "" || localLog {
+		baseSHA, err := gitx.Resolve(deps.Dir, *base)
+		if err != nil {
+			return t.fail(exitUnverifiable, "intentgate verify: %v", err)
+		}
+		headSHA, err := gitx.Resolve(deps.Dir, *head)
+		if err != nil {
+			return t.fail(exitUnverifiable, "intentgate verify: %v", err)
+		}
+		event = audit.NewVerifyEvent(deps.Now(), version, *repoFlag, *pr, audit.Verify{
+			BaseSHA: baseSHA, HeadSHA: headSHA, BaseBranch: *baseBranch, Author: *author, AuthorType: *authorType,
+			ConfigSHA256: sha256Hex(in.Config), VerifySHA256: sha256Hex(outputs["json"]),
+			Locks: auditLocks(in), Outcome: string(res.Outcome), ExitCode: res.ExitCode, Conclusion: dec.Conclusion,
+		})
+		auditJSON = audit.JSON(event)
+	}
 	if *outDir != "" {
-		if err := writeOutDir(resolve(deps.Dir, *outDir), outputs, dec); err != nil {
+		if err := writeOutDir(resolve(deps.Dir, *outDir), outputs, dec, auditJSON); err != nil {
 			return t.fail(exitUnverifiable, "intentgate verify: %v", err)
 		}
 	}
+	if localLog {
+		appendAudit(deps.StateDir, event, t.errOut)
+	}
 	_, _ = stdout.Write(outputs[*format])
 	return res.ExitCode
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// auditLocks are the locks of the pull request that parse: the lock files at head that are not
+// deleted. A file that does not parse has no id or method to record; verify.json reports it.
+func auditLocks(in verify.Input) []lock.Lock {
+	var ls []lock.Lock
+	for _, f := range in.LockFiles {
+		if f.Status == footprint.Deleted || f.Data == nil {
+			continue
+		}
+		if l, err := lock.Parse(f.Data); err == nil {
+			ls = append(ls, l)
+		}
+	}
+	return ls
+}
+
+// runReplay re-runs the decision recorded in a verify audit event (core-contracts.md §1): the same
+// refs, branch and author in the current repository, and compares the SHA-256 of the fresh
+// verify.json with the event's. It reads no clock and writes no audit event.
+//
+// Exit codes: 0 identical; 1 differs (the fresh verify.json is on stdout); 3 the event cannot be
+// read, or a ref in it is not in this repository.
+func runReplay(t *term, path string, deps Deps) int {
+	data, err := os.ReadFile(resolve(deps.Dir, path))
+	if err != nil {
+		return t.fail(exitUnverifiable, "intentgate verify: cannot read the event: %v", err)
+	}
+	var ev audit.Event
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return t.fail(exitUnverifiable, "intentgate verify: %s is not an audit event: %v", path, err)
+	}
+	if ev.Schema != audit.SchemaID || ev.Event != audit.EventVerify || ev.BaseSHA == "" || ev.HeadSHA == "" || ev.BaseBranch == "" || ev.VerifySHA256 == "" {
+		return t.fail(exitUnverifiable, "intentgate verify: %s is not a %s verify event with its refs and verify_sha256", path, audit.SchemaID)
+	}
+	in, err := readVerifyInput(deps.Dir, ev.BaseSHA, ev.HeadSHA, ev.BaseBranch, ev.Author, ev.AuthorType)
+	if err != nil {
+		return t.fail(exitUnverifiable, "intentgate verify: %v", err)
+	}
+	fresh := report.JSON(verify.Run(in))
+	if sha256Hex(fresh) == ev.VerifySHA256 {
+		fmt.Fprintln(t.out, "replay: identical")
+		return exitOK
+	}
+	fmt.Fprintln(t.errOut, "replay: differs")
+	_, _ = t.out.Write(fresh)
+	return 1
 }
 
 // readVerifyInput reads everything the check looks at, at head, through git (verify.Input).
@@ -184,8 +275,8 @@ type decisionFile struct {
 	Title      string `json:"title"`
 }
 
-// writeOutDir creates dir and writes the five output files into it, overwriting those five only.
-func writeOutDir(dir string, outputs map[string][]byte, dec policy.Decision) error {
+// writeOutDir creates dir and writes the output files into it (the five, and audit.json), overwriting those only.
+func writeOutDir(dir string, outputs map[string][]byte, dec policy.Decision, auditJSON []byte) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -202,6 +293,12 @@ func writeOutDir(dir string, outputs map[string][]byte, dec policy.Decision) err
 		{"summary.md", outputs["summary"]},
 		{"comment.md", outputs["comment"]},
 		{"decision.json", buf.Bytes()},
+	}
+	if auditJSON != nil {
+		files = append(files, struct {
+			name string
+			data []byte
+		}{"audit.json", auditJSON})
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("cannot create the out dir: %w", err)

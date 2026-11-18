@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"intentgate/internal/audit"
 	"intentgate/internal/gitx"
 	"intentgate/internal/hooks/claudecode"
 	"intentgate/internal/ids"
@@ -273,6 +274,7 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 		return claudecode.Output{}, err
 	}
 	_ = os.Remove(recPath)
+	auditLockWritten(deps, audit.EventLock, l, now, top)
 	return claudecode.Output{SystemMessage: "IntentGate: intent lock written: .intent/" + l.ID + ".yml"}, nil
 }
 
