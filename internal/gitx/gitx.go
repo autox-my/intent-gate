@@ -278,3 +278,13 @@ func CommitTime(dir, rev string) (time.Time, error) {
 	}
 	return time.Unix(secs, 0).UTC(), nil
 }
+
+// LockAddition is a lock file and the first-parent commit that added it.
+type LockAddition struct {
+	Path   string // .intent/<name>.yml
+	Commit string
+	Time   time.Time // the commit's committer time, UTC
+}
+
+// LockAdditions lists the lock files that first-parent history of rev added. Stub: the red commit of S-10.
+func LockAdditions(dir, rev string) ([]LockAddition, error) { return nil, nil }

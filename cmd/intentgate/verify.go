@@ -42,6 +42,9 @@ func runVerify(args []string, stdout io.Writer, deps Deps) int {
 	authorType := fs.String("author-type", "", "")
 	format := fs.String("format", "text", "")
 	outDir := fs.String("out-dir", "", "")
+	_ = fs.String("repo", "", "")   // S-10 stub
+	_ = fs.Int("pr", 0, "")         // S-10 stub
+	_ = fs.String("replay", "", "") // S-10 stub
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return t.usage(verifyUsage, "")
 	}

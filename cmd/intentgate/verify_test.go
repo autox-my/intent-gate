@@ -130,14 +130,21 @@ func crit(id, text string, fp ...string) lock.Criterion {
 
 func lockPath(id string) string { return ".intent/" + id + ".yml" }
 
-// verifyRun runs `intentgate verify` in dir. The clock must not be read.
+// verifyRun runs `intentgate verify` in dir. The clock must not be read, except for the audit
+// event's `at` (S-10), which exists only with --out-dir here (there is no state dir).
 func verifyRun(t *testing.T, dir string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	var out, errb bytes.Buffer
+	withOutDir := false
+	for _, a := range args {
+		withOutDir = withOutDir || a == "--out-dir"
+	}
 	deps := Deps{
 		Now: func() time.Time {
-			t.Error("verify read the clock")
-			return time.Time{}
+			if !withOutDir {
+				t.Error("verify read the clock")
+			}
+			return time.Date(2026, 11, 19, 8, 0, 0, 0, time.UTC)
 		},
 		Dir:    dir,
 		Stderr: &errb,

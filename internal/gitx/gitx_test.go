@@ -378,3 +378,118 @@ func TestGitx_ShowFile_Symlink(t *testing.T) {
 		t.Errorf("ShowFile of a symlink = found %v, err %v; want the symlink error", found, err)
 	}
 }
+
+// commitAt makes a commit with the given committer date, whatever the caller's git configuration.
+func commitOn(t *testing.T, dir string, date time.Time, args ...string) {
+	t.Helper()
+	t.Setenv("GIT_COMMITTER_DATE", date.Format(time.RFC3339))
+	t.Setenv("GIT_AUTHOR_DATE", date.Format(time.RFC3339))
+	git(t, dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+}
+
+func writeAndAdd(t *testing.T, dir string, files ...string) {
+	t.Helper()
+	for _, f := range files {
+		p := filepath.Join(dir, f)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(f+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", "-A")
+}
+
+func TestGitx_LockAdditions(t *testing.T) {
+	d1 := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 11, 2, 10, 0, 0, 0, time.UTC)
+	d3 := time.Date(2026, 11, 3, 10, 0, 0, 0, time.UTC)
+	d4 := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	got := func(t *testing.T, dir, rev string) map[string]time.Time {
+		t.Helper()
+		adds, err := LockAdditions(dir, rev)
+		if err != nil {
+			t.Fatalf("LockAdditions: %v", err)
+		}
+		m := map[string]time.Time{}
+		for _, a := range adds {
+			if _, dup := m[a.Path]; dup {
+				t.Errorf("%s is listed twice", a.Path)
+			}
+			if a.Commit == "" {
+				t.Errorf("%s has no commit", a.Path)
+			}
+			m[a.Path] = a.Time
+		}
+		return m
+	}
+
+	t.Run("first-parent only: a lock added on a merged side branch counts at the merge commit's time", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, ".intent/A.yml", ".intent/B.yml")
+		commitOn(t, dir, d1, "commit", "-q", "-m", "two locks")
+		git(t, dir, "checkout", "-q", "-b", "side")
+		writeAndAdd(t, dir, ".intent/C.yml")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "side lock")
+		git(t, dir, "checkout", "-q", "main")
+		writeAndAdd(t, dir, "x.txt")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "x")
+		commitOn(t, dir, d3, "merge", "-q", "--no-ff", "side", "-m", "merge")
+
+		want := map[string]time.Time{".intent/A.yml": d1, ".intent/B.yml": d1, ".intent/C.yml": d3}
+		if g := got(t, dir, "HEAD"); !reflect.DeepEqual(g, want) {
+			t.Errorf("additions = %v, want %v", g, want)
+		}
+	})
+
+	t.Run("-z parsing: odd names, and only .intent/<name>.yml, and a later edit does not move the time", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, ".intent/ünï file.yml", ".intent/sub/deep.yml", ".intent/README.md", "other/x.yml")
+		commitOn(t, dir, d1, "commit", "-q", "-m", "files")
+		writeAndAdd(t, dir, ".intent/ünï file.yml", ".intent/two words.yml")
+		if err := os.WriteFile(filepath.Join(dir, ".intent/ünï file.yml"), []byte("edited\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "add", "-A")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "edit and add")
+
+		want := map[string]time.Time{".intent/ünï file.yml": d1, ".intent/two words.yml": d2}
+		if g := got(t, dir, "HEAD"); !reflect.DeepEqual(g, want) {
+			t.Errorf("additions = %v, want %v", g, want)
+		}
+	})
+
+	t.Run("the newest commit wins when a file is deleted and added again, and the list is newest first", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, ".intent/A.yml")
+		commitOn(t, dir, d1, "commit", "-q", "-m", "add")
+		git(t, dir, "rm", "-q", ".intent/A.yml")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "remove")
+		writeAndAdd(t, dir, ".intent/A.yml", ".intent/B.yml")
+		commitOn(t, dir, d4, "commit", "-q", "-m", "add again")
+		adds, err := LockAdditions(dir, "HEAD")
+		if err != nil || len(adds) != 2 {
+			t.Fatalf("additions = %+v, %v; want 2", adds, err)
+		}
+		if adds[0].Path != ".intent/A.yml" || adds[1].Path != ".intent/B.yml" || !adds[0].Time.Equal(d4) || !adds[1].Time.Equal(d4) {
+			t.Errorf("additions = %+v, want A then B at %v", adds, d4)
+		}
+	})
+
+	t.Run("no locks is an empty list; a bad rev is an error", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		if adds, err := LockAdditions(dir, "HEAD"); err != nil || len(adds) != 0 {
+			t.Errorf("additions = %+v, %v; want none", adds, err)
+		}
+		for _, rev := range []string{"nosuchrev", "--all", ""} {
+			if adds, err := LockAdditions(dir, rev); err == nil {
+				t.Errorf("rev %q: additions %+v, nil; want an error", rev, adds)
+			}
+		}
+	})
+}
