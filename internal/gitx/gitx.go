@@ -109,6 +109,8 @@ func rawConfig(safeDirectory string) []string {
 		"diff.mnemonicPrefix=false",
 		"diff.renameLimit=65535",
 		"core.ignoreCase=false",
+		"core.fsmonitor=false", // a repo-local fsmonitor hook would run a command
+		"core.hooksPath=/dev/null",
 	} {
 		args = append(args, "-c", kv)
 	}
