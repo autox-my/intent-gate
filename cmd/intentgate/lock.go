@@ -29,7 +29,9 @@ const (
 	exitUsage        = 2
 	exitUnverifiable = 3
 
-	lockUsage  = "usage: intentgate lock --from-plan <plan.md> [--prompt <file>]\n"
+	lockUsage = "usage: intentgate lock --from-plan <plan.md> [--prompt <file>]\n" +
+		"       intentgate lock --issue <n> [--repo <owner/name>]\n"
+
 	amendUsage = "usage: intentgate amend <id> (--criterion <Cn> --add <glob> | --reratify)\n"
 
 	timeLayout = "2006-01-02T15:04:05Z"
@@ -118,19 +120,29 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 	fs := newFlags("lock")
 	planPath := fs.String("from-plan", "", "")
 	promptPath := fs.String("prompt", "", "")
+	issueNum := fs.Int("issue", 0, "")
+	repoFlag := fs.String("repo", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return t.usage(lockUsage, "")
 	}
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if !set["from-plan"] || *planPath == "" || (set["prompt"] && *promptPath == "") {
-		return t.usage(lockUsage, "")
+	switch {
+	case set["issue"] && !set["from-plan"] && !set["prompt"] && *issueNum > 0 && (!set["repo"] || validRepo(*repoFlag)):
+		return runLockIssue(t, *issueNum, *repoFlag)
+	case set["from-plan"] && !set["issue"] && !set["repo"] && *planPath != "" && (!set["prompt"] || *promptPath != ""):
+		return runLockPlan(t, *planPath, *promptPath, set["prompt"])
 	}
+	return t.usage(lockUsage, "")
+}
+
+func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
+	deps := t.deps
 	if !t.requireTerminal() {
 		return exitUsage
 	}
 
-	plan, err := os.ReadFile(resolve(deps.Dir, *planPath))
+	plan, err := os.ReadFile(resolve(deps.Dir, planPath))
 	if err != nil {
 		return t.fail(exitNotConfirmed, "no lock: cannot read the plan: %v", err)
 	}
@@ -140,8 +152,8 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 	}
 
 	var rootIntent string
-	if set["prompt"] {
-		data, err := os.ReadFile(resolve(deps.Dir, *promptPath))
+	if hasPrompt {
+		data, err := os.ReadFile(resolve(deps.Dir, promptPath))
 		if err != nil {
 			return t.fail(exitNotConfirmed, "no lock: cannot read the root intent: %v", err)
 		}
@@ -157,9 +169,32 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
+	return t.confirmAndWrite(pending{
+		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent,
+		Source: "plan-file", Method: "cli-confirm", Ratifier: "git:" + email,
+	})
+}
 
-	fmt.Fprintf(t.out, "Criteria to lock (base %s):\n", baseRef)
-	showCriteria(t.out, criteria)
+// pending is a lock ready to be shown to the human: everything but the confirmation.
+type pending struct {
+	Top, BaseRef string
+	Criteria     []lock.Criterion
+	RootIntent   string
+	Source       string // root_intent.source
+	Method       string // ratification.method
+	Ratifier     string
+	Intro        string // printed before the criteria, if not empty
+}
+
+// confirmAndWrite is the step the lock paths share (ratification.md §1, steps 5-7): show the
+// criteria, ask for `yes`, then mask, build and write. Nothing is written before the yes.
+func (t *term) confirmAndWrite(p pending) int {
+	deps := t.deps
+	if p.Intro != "" {
+		fmt.Fprintln(t.out, p.Intro)
+	}
+	fmt.Fprintf(t.out, "Criteria to lock (base %s):\n", p.BaseRef)
+	showCriteria(t.out, p.Criteria)
 	yes, shown, answered := t.confirm("Type yes to lock these criteria:")
 	if !yes {
 		return t.fail(exitNotConfirmed, "intentgate lock: not confirmed; nothing written")
@@ -169,14 +204,14 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
-	l, masked, err := ratify.MaskAndBuild(nil, rootIntent, ratify.BuildInput{
+	l, masked, err := ratify.MaskAndBuild(nil, p.RootIntent, ratify.BuildInput{
 		ID:               id,
-		BaseRef:          baseRef,
-		Source:           "plan-file",
-		Criteria:         criteria,
-		Ratifier:         "git:" + email,
+		BaseRef:          p.BaseRef,
+		Source:           p.Source,
+		Criteria:         p.Criteria,
+		Ratifier:         p.Ratifier,
 		RatifiedAt:       answered,
-		Method:           "cli-confirm",
+		Method:           p.Method,
 		ReviewDurationMS: reviewMS(shown, answered),
 	})
 	if err != nil {
@@ -186,7 +221,7 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 		}
 		return t.fail(code, "intentgate lock: %v", err)
 	}
-	if err := (ratify.Store{RepoRoot: top, StateDir: deps.StateDir}).Write(l, masked); err != nil {
+	if err := (ratify.Store{RepoRoot: p.Top, StateDir: deps.StateDir}).Write(l, masked); err != nil {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
 	fmt.Fprintf(t.out, "intent lock written: .intent/%s.yml\n", l.ID)

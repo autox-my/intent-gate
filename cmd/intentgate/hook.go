@@ -24,6 +24,7 @@ type Git interface {
 	TopLevel(dir string) (string, error)
 	UserEmail(dir string) (string, error)
 	BaseRef(dir string) (string, error)
+	RemoteURL(dir, name string) (string, error)
 }
 
 // gitCLI is the real Git: internal/gitx.
@@ -32,6 +33,9 @@ type gitCLI struct{}
 func (gitCLI) TopLevel(dir string) (string, error)  { return gitx.TopLevel(dir) }
 func (gitCLI) UserEmail(dir string) (string, error) { return gitx.UserEmail(dir) }
 func (gitCLI) BaseRef(dir string) (string, error)   { return gitx.BaseRef(dir) }
+func (gitCLI) RemoteURL(dir, name string) (string, error) {
+	return gitRemoteURL(dir, name)
+}
 
 // Deps is everything Run takes from the outside world.
 type Deps struct {
@@ -40,6 +44,10 @@ type Deps struct {
 	StateDir string
 	Git      Git
 	Stderr   io.Writer // usage errors only; nil discards
+
+	// GHAuthToken returns the token `gh auth token` prints, for `lock --issue` when neither
+	// $GITHUB_TOKEN nor $GH_TOKEN is set. Nil means there is no such fallback.
+	GHAuthToken func() (string, error)
 
 	// Dir is the working directory commands start from; relative paths and git are resolved here.
 	Dir string

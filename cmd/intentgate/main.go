@@ -1,5 +1,5 @@
 // Command intentgate locks the intent behind agent-written changes. Commands:
-// `intentgate hook claude-code pre|post|print-config`, `intentgate lock --from-plan <plan.md>` and
+// `intentgate hook claude-code pre|post|print-config`, `intentgate lock --from-plan <plan.md>` or `--issue <n>`, and
 // `intentgate amend <id> ...`.
 package main
 
@@ -18,6 +18,8 @@ func main() {
 		StateDir: stateDir(),
 		Git:      gitCLI{},
 		Stderr:   os.Stderr,
+
+		GHAuthToken: ghAuthToken,
 
 		Dir:        dir,
 		IsTerminal: isTerminal,

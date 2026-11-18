@@ -4,11 +4,26 @@ package github
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 )
 
-// Client talks to the GitHub REST API at BaseURL with Token.
+const (
+	apiVersion = "2022-11-28"
+	userAgent  = "intentgate"
+	timeout    = 30 * time.Second
+	maxBody    = 16 << 20 // a bound on what one response may hold
+	maxPages   = 1000     // a bound on Link: rel="next" chains, so a bad server can't loop us
+)
+
+// Client talks to the GitHub REST API at BaseURL with Token. A nil HTTP means a client with a 30 s
+// request timeout. The token is only ever sent as the Authorization header of a request to BaseURL's
+// host, and never appears in an error.
 type Client struct {
 	BaseURL string
 	Token   string
@@ -26,19 +41,159 @@ type Issue struct {
 // Comment is one issue comment.
 type Comment struct{ Author, Body string }
 
-var errNotImplemented = errors.New("github: not implemented")
+type user struct {
+	Login string `json:"login"`
+}
 
 // Issue gets GET /repos/{owner}/{repo}/issues/{n}.
 func (c *Client) Issue(ctx context.Context, owner, repo string, n int) (Issue, error) {
-	return Issue{}, errNotImplemented
+	var raw struct {
+		Number      int              `json:"number"`
+		Title       string           `json:"title"`
+		Body        *string          `json:"body"`
+		User        user             `json:"user"`
+		PullRequest *json.RawMessage `json:"pull_request"`
+	}
+	if _, err := c.get(ctx, c.repoPath(owner, repo, n, ""), &raw); err != nil {
+		return Issue{}, err
+	}
+	is := Issue{Number: raw.Number, Title: raw.Title, Author: raw.User.Login, IsPullRequest: raw.PullRequest != nil}
+	if raw.Body != nil {
+		is.Body = *raw.Body
+	}
+	return is, nil
 }
 
-// Comments gets every comment of the issue, in API order.
+// Comments gets GET /repos/{owner}/{repo}/issues/{n}/comments?per_page=100, following Link:
+// rel="next" until done, and returns the comments in API order.
 func (c *Client) Comments(ctx context.Context, owner, repo string, n int) ([]Comment, error) {
-	return nil, errNotImplemented
+	var all []Comment
+	next := c.repoPath(owner, repo, n, "/comments") + "?per_page=100"
+	for pages := 0; next != ""; pages++ {
+		if pages >= maxPages {
+			return nil, fmt.Errorf("github: more than %d pages of comments", maxPages)
+		}
+		var raw []struct {
+			Body *string `json:"body"`
+			User user    `json:"user"`
+		}
+		h, err := c.get(ctx, next, &raw)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range raw {
+			cm := Comment{Author: r.User.Login}
+			if r.Body != nil {
+				cm.Body = *r.Body
+			}
+			all = append(all, cm)
+		}
+		next = nextLink(h.Get("Link"))
+	}
+	return all, nil
 }
 
 // Viewer gets the login of the token's user: GET /user.
 func (c *Client) Viewer(ctx context.Context) (string, error) {
-	return "", errNotImplemented
+	var u user
+	if _, err := c.get(ctx, "/user", &u); err != nil {
+		return "", err
+	}
+	if u.Login == "" {
+		return "", fmt.Errorf("github: GET /user: no login in the response")
+	}
+	return u.Login, nil
+}
+
+func (c *Client) repoPath(owner, repo string, n int, suffix string) string {
+	return fmt.Sprintf("/repos/%s/%s/issues/%d%s", url.PathEscape(owner), url.PathEscape(repo), n, suffix)
+}
+
+// get fetches target (a path with an optional query, or an absolute URL from a Link header) and
+// decodes the JSON body into out. A non-2xx is an error with the status and GitHub's message.
+func (c *Client) get(ctx context.Context, target string, out any) (http.Header, error) {
+	base, err := url.Parse(strings.TrimRight(c.BaseURL, "/"))
+	if err != nil || base.Host == "" {
+		return nil, fmt.Errorf("github: bad API URL %q", c.BaseURL)
+	}
+	full := base.String() + target
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
+		u, err := url.Parse(target)
+		if err != nil || u.Host != base.Host {
+			return nil, fmt.Errorf("github: refusing to follow a link to another host: %q", target)
+		}
+		full = target
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
+	if err != nil {
+		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", apiVersion)
+	req.Header.Set("User-Agent", userAgent)
+
+	hc := c.HTTP
+	if hc == nil {
+		hc = &http.Client{Timeout: timeout}
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		var m struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(body, &m)
+		msg := m.Message
+		if msg == "" {
+			msg = http.StatusText(resp.StatusCode)
+		}
+		return nil, fmt.Errorf("github: GET %s: %d %s", target, resp.StatusCode, scrubString(msg, c.Token))
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return nil, fmt.Errorf("github: GET %s: bad JSON: %w", target, err)
+	}
+	return resp.Header, nil
+}
+
+// scrub returns an error whose text lacks the token, so no path can print it.
+func scrub(err error, token string) error {
+	if token == "" || !strings.Contains(err.Error(), token) {
+		return err
+	}
+	return fmt.Errorf("%s", scrubString(err.Error(), token))
+}
+
+func scrubString(s, token string) string {
+	if token == "" {
+		return s
+	}
+	return strings.ReplaceAll(s, token, "[REDACTED]")
+}
+
+// nextLink returns the rel="next" URL of a Link header, or "".
+func nextLink(header string) string {
+	for _, part := range strings.Split(header, ",") {
+		segs := strings.Split(part, ";")
+		if len(segs) < 2 {
+			continue
+		}
+		u := strings.TrimSpace(segs[0])
+		if !strings.HasPrefix(u, "<") || !strings.HasSuffix(u, ">") {
+			continue
+		}
+		for _, p := range segs[1:] {
+			if strings.ReplaceAll(strings.TrimSpace(p), " ", "") == `rel="next"` {
+				return u[1 : len(u)-1]
+			}
+		}
+	}
+	return ""
 }
