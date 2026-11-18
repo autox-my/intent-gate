@@ -263,3 +263,35 @@ func TestStats_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+// REQ-0041
+func TestStats_RenamedLockIsNotNew(t *testing.T) {
+	r := newVRepo(t)
+	r.write(lockPath(statsOutside), string(statsLock(t, statsOutside, "hook", 500, nil))) // added 80 days before HEAD
+	r.commit("old lock", statsOldDate)
+	r.git("mv", lockPath(statsOutside), ".intent/renamed.yml")
+	r.commit("rename inside the window", time.Date(2026, 12, 10, 10, 0, 0, 0, time.UTC))
+	r.git("mv", ".intent/renamed.yml", ".intent/renamed-again.yml")
+	r.commit("rename again", time.Date(2026, 12, 15, 10, 0, 0, 0, time.UTC))
+	r.write("README.md", "# readme, edited\n")
+	r.commit("head", statsHead)
+
+	run := func(since string) statsOut {
+		t.Helper()
+		code, stdout, stderr := r.stats("--since", since, "--format", "json")
+		if code != 0 {
+			t.Fatalf("exit %d, stderr %q", code, stderr)
+		}
+		var got statsOut
+		if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := run("30d"); got.Locks != 0 || got.Invalid != 0 || got.AmendmentRate != "n/a" {
+		t.Errorf("30d: locks %d, invalid %d, rate %q; want a renamed old lock not counted as new", got.Locks, got.Invalid, got.AmendmentRate)
+	}
+	if got := run("100d"); got.Locks != 1 {
+		t.Errorf("100d: locks %d, want 1 (the lock keeps its original add time)", got.Locks)
+	}
+}

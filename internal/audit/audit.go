@@ -48,6 +48,7 @@ type Event struct {
 	ConfigSHA256      string      `json:"config_sha256"`
 	VerifySHA256      string      `json:"verify_sha256"`
 	Locks             []LockEntry `json:"locks"`
+	UnverifiableLocks int         `json:"unverifiable_locks"`
 	Outcome           string      `json:"outcome"`
 	ExitCode          int         `json:"exit_code"`
 	Conclusion        string      `json:"conclusion"`
@@ -60,6 +61,7 @@ type Verify struct {
 	BaseSHA, HeadSHA, BaseBranch, Author, AuthorType string
 	ConfigSHA256, VerifySHA256                       string
 	Locks                                            []lock.Lock
+	UnverifiableLocks                                int
 	Outcome                                          string
 	ExitCode                                         int
 	Conclusion                                       string

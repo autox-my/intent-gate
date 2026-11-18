@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -231,6 +232,157 @@ func TestVerify_AuditEvent(t *testing.T) {
 		}
 		readOut(t, out, "audit.json")
 	})
+
+	t.Run("review 1: only validated locks are listed; the others are counted and quote nothing", func(t *testing.T) {
+		const (
+			secretID     = "SECRET-ID-9f3a"
+			secretHash   = "sha256:SECRET-HASH-77c1"
+			secretMethod = "SECRET-METHOD-b0b0"
+			lockC        = "01JD8Z6Q4M7R2T9X3B5N8K1CDP"
+		)
+		r := newVRepo(t)
+		r.feature()
+		_, good := mkLock(t, lockA, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**", ".intentgate.yml"))
+		r.write(lockPath(lockA), string(good))
+		// Parses, does not validate: every id, hash and method is a secret string.
+		bad, _ := mkLock(t, lockB, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**"))
+		bad.ID, bad.Hash, bad.Ratification.Method = secretID, secretHash, secretMethod
+		r.write(lockPath(lockB), string(marshalLock(t, bad)))
+		// Valid, but not at .intent/<its id>.yml.
+		_, misplaced := mkLock(t, lockC, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**"))
+		r.write(".intent/"+secretID+"-moved.yml", string(misplaced))
+		// Does not parse.
+		r.write(".intent/01JD8Z6Q4M7R2T9X3B5N8K1CEQ.yml", "SECRET-GARBAGE: [unclosed\n")
+		r.write("src/a.go", "package src\n")
+		r.commit("head", headDate)
+
+		state := filepath.Join(t.TempDir(), "state")
+		out := filepath.Join(t.TempDir(), "out")
+		r.verifyAt(&fakeClock{at: time.Date(2026, 11, 19, 8, 0, 0, 0, time.UTC)}, state, r.args(out)...)
+		auditJSON := readOut(t, out, "audit.json")
+		ev := decodeEvent(t, auditJSON)
+		if len(ev.Locks) != 1 || ev.Locks[0].ID != lockA {
+			t.Errorf("locks = %+v, want only the valid %s", ev.Locks, lockA)
+		}
+		if ev.UnverifiableLocks != 3 {
+			t.Errorf("unverifiable_locks = %d, want 3", ev.UnverifiableLocks)
+		}
+		log, err := os.ReadFile(filepath.Join(state, "audit.jsonl"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, data := range map[string][]byte{"audit.json": auditJSON, "audit.jsonl": log} {
+			if bytes.Contains(data, []byte("SECRET")) {
+				t.Errorf("%s quotes text from a lock that did not validate: %s", name, data)
+			}
+		}
+	})
+
+	t.Run("review 1: config_sha256 is empty when .intentgate.yml is absent and the hash of its bytes when it is empty", func(t *testing.T) {
+		hashOf := func(config *string) string {
+			t.Helper()
+			r := newVRepo(t)
+			r.feature()
+			_, data := mkLock(t, lockA, "main", ratifiedOK, crit("C1", "The command is implemented", "src/**"))
+			r.write(lockPath(lockA), string(data))
+			r.write("src/a.go", "package src\n")
+			if config != nil {
+				r.write(".intentgate.yml", *config)
+			}
+			r.commit("head", headDate)
+			out := filepath.Join(t.TempDir(), "out")
+			r.verifyAt(&fakeClock{at: time.Date(2026, 11, 19, 8, 0, 0, 0, time.UTC)}, "", r.args(out)...)
+			return decodeEvent(t, readOut(t, out, "audit.json")).ConfigSHA256
+		}
+		empty := ""
+		const emptyHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+		if got := hashOf(nil); got != "" {
+			t.Errorf("absent config: config_sha256 = %q, want \"\"", got)
+		}
+		if got := hashOf(&empty); got != emptyHash {
+			t.Errorf("empty config: config_sha256 = %q, want %s", got, emptyHash)
+		}
+	})
+
+	t.Run("review 1: an existing looser audit.jsonl is tightened to 0600", func(t *testing.T) {
+		s := filepath.Join(t.TempDir(), "state")
+		if err := os.MkdirAll(s, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		logPath := filepath.Join(s, "audit.jsonl")
+		if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(logPath, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, stderr := r.verifyAt(&fakeClock{at: c1.at}, s, r.args("")...); code != 0 || stderr != "" {
+			t.Fatalf("exit %d, stderr %q", code, stderr)
+		}
+		if info, err := os.Stat(logPath); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("audit.jsonl mode %v, %v; want 0600", info.Mode(), err)
+		}
+		if log := auditLog(t, s); len(log) != 1 {
+			t.Errorf("audit.jsonl has %d events, want 1", len(log))
+		}
+	})
+
+	t.Run("review 1: a symlinked audit.jsonl is a warning, the target is untouched, the exit code is unchanged", func(t *testing.T) {
+		s := filepath.Join(t.TempDir(), "state")
+		if err := os.MkdirAll(s, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "victim.txt")
+		if err := os.WriteFile(target, []byte("original\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(target, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(s, "audit.jsonl")); err != nil {
+			t.Fatal(err)
+		}
+		code, stdout, stderr := r.verifyAt(&fakeClock{at: c1.at}, s, r.args("")...)
+		if code != 0 || stdout != stdout1 {
+			t.Errorf("exit %d, stdout %q; want 0 and the usual output", code, stdout)
+		}
+		if !strings.Contains(stderr, "audit") {
+			t.Errorf("stderr %q has no warning about the audit log", stderr)
+		}
+		if data, err := os.ReadFile(target); err != nil || string(data) != "original\n" {
+			t.Errorf("the symlink target = %q, %v; want it untouched", data, err)
+		}
+		if info, err := os.Stat(target); err != nil || info.Mode().Perm() != 0o644 {
+			t.Errorf("the symlink target's mode = %v, %v; want 0644 untouched", info.Mode(), err)
+		}
+	})
+
+	t.Run("review 1: a FIFO where the log should be is a warning, not a hang", func(t *testing.T) {
+		s := filepath.Join(t.TempDir(), "state")
+		if err := os.MkdirAll(s, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := syscall.Mkfifo(filepath.Join(s, "audit.jsonl"), 0o600); err != nil {
+			t.Skipf("no FIFOs here: %v", err)
+		}
+		type result struct {
+			code   int
+			stderr string
+		}
+		done := make(chan result, 1)
+		go func() {
+			code, _, stderr := r.verifyAt(&fakeClock{at: c1.at}, s, r.args("")...)
+			done <- result{code, stderr}
+		}()
+		select {
+		case res := <-done:
+			if res.code != 0 || !strings.Contains(res.stderr, "audit") {
+				t.Errorf("exit %d, stderr %q; want 0 and a warning about the audit log", res.code, res.stderr)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("verify hung opening a FIFO")
+		}
+	})
 }
 
 // REQ-0042
@@ -300,6 +452,26 @@ func TestVerify_Replay(t *testing.T) {
 		lockEv.Event = "lock"
 		for name, path := range map[string]string{"not JSON": notJSON, "a lock event": writeEvent(t, lockEv), "missing": filepath.Join(t.TempDir(), "none.json")} {
 			if code, _, stderr, _, _ := replay(path); code != 3 {
+				t.Errorf("%s: exit %d, stderr %q; want 3", name, code, stderr)
+			}
+		}
+	})
+
+	t.Run("review 1: base_sha and head_sha must be full hex names that resolve to themselves", func(t *testing.T) {
+		head := r.git("rev-parse", "feature")
+		r.git("tag", "-a", "-m", "annotated", "annotated-head", "feature")
+		tagObject := r.git("rev-parse", "annotated-head")
+		for name, mutate := range map[string]func(e *audit.Event){
+			"a branch name as base_sha": func(e *audit.Event) { e.BaseSHA = "main" },
+			"a branch name as head_sha": func(e *audit.Event) { e.HeadSHA = "feature" },
+			"a short head_sha":          func(e *audit.Event) { e.HeadSHA = head[:10] },
+			"an upper-case head_sha":    func(e *audit.Event) { e.HeadSHA = strings.ToUpper(head) },
+			"a tag object as head_sha":  func(e *audit.Event) { e.HeadSHA = tagObject },
+			"an expression as head_sha": func(e *audit.Event) { e.HeadSHA = head + "~0" },
+		} {
+			bad := ev
+			mutate(&bad)
+			if code, _, stderr, _, _ := replay(writeEvent(t, bad)); code != 3 {
 				t.Errorf("%s: exit %d, stderr %q; want 3", name, code, stderr)
 			}
 		}

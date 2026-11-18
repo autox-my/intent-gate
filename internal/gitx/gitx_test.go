@@ -480,6 +480,41 @@ func TestGitx_LockAdditions(t *testing.T) {
 		}
 	})
 
+	t.Run("review 1: a renamed lock keeps the time of its original add, through each rename", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, ".intent/A.yml", ".intent/B.yml")
+		commitOn(t, dir, d1, "commit", "-q", "-m", "two locks")
+		git(t, dir, "mv", ".intent/A.yml", ".intent/A2.yml")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "rename A")
+		git(t, dir, "mv", ".intent/A2.yml", ".intent/A3.yml")
+		commitOn(t, dir, d3, "commit", "-q", "-m", "rename A again")
+		writeAndAdd(t, dir, ".intent/C.yml")
+		commitOn(t, dir, d4, "commit", "-q", "-m", "a new lock")
+
+		want := map[string]time.Time{".intent/A3.yml": d1, ".intent/B.yml": d1, ".intent/C.yml": d4}
+		if g := got(t, dir, "HEAD"); !reflect.DeepEqual(g, want) {
+			t.Errorf("additions = %v, want %v", g, want)
+		}
+	})
+
+	t.Run("review 1: a file moved into .intent/ from outside is an addition at the move", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, "elsewhere/A.yml")
+		commitOn(t, dir, d1, "commit", "-q", "-m", "a file outside")
+		if err := os.MkdirAll(filepath.Join(dir, ".intent"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "mv", "elsewhere/A.yml", ".intent/A.yml")
+		commitOn(t, dir, d2, "commit", "-q", "-m", "move in")
+
+		want := map[string]time.Time{".intent/A.yml": d2}
+		if g := got(t, dir, "HEAD"); !reflect.DeepEqual(g, want) {
+			t.Errorf("additions = %v, want %v", g, want)
+		}
+	})
+
 	t.Run("no locks is an empty list; a bad rev is an error", func(t *testing.T) {
 		isolate(t)
 		dir := repoOn(t, "main")

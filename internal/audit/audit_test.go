@@ -55,7 +55,7 @@ func TestAuditEvent_RatificationMethod(t *testing.T) {
 		e := NewVerifyEvent(at, "0.1.0", "owner/name", 42, Verify{
 			BaseSHA: "b1", HeadSHA: "h1", BaseBranch: "main", Author: "octocat", AuthorType: "User",
 			ConfigSHA256: "c0ffee", VerifySHA256: "5ec0de",
-			Locks:   []lock.Lock{cli, hook},
+			Locks: []lock.Lock{cli, hook}, UnverifiableLocks: 2,
 			Outcome: "findings", ExitCode: 1, Conclusion: "neutral",
 		})
 		want := `{"schema":"intentgate.audit/1","event":"verify","at":"2026-11-18T09:20:11Z","repo":"owner/name","pr":42,` +
@@ -63,7 +63,7 @@ func TestAuditEvent_RatificationMethod(t *testing.T) {
 			`"intentgate_version":"0.1.0","config_sha256":"c0ffee","verify_sha256":"5ec0de","locks":[` +
 			`{"id":"` + idA + `","revision":2,"hash":"sha256:aaaa","ratification_method":"hook","review_duration_ms":48210},` +
 			`{"id":"` + idB + `","revision":1,"hash":"sha256:bbbb","ratification_method":"cli-confirm","review_duration_ms":null}` +
-			`],"outcome":"findings","exit_code":1,"conclusion":"neutral"}` + "\n"
+			`],"unverifiable_locks":2,"outcome":"findings","exit_code":1,"conclusion":"neutral"}` + "\n"
 		if got := string(JSON(e)); got != want {
 			t.Errorf("JSON:\n got %s\nwant %s", got, want)
 		}
@@ -75,7 +75,7 @@ func TestAuditEvent_RatificationMethod(t *testing.T) {
 			`"base_sha":"","head_sha":"","base_branch":"","author":"","author_type":"",` +
 			`"intentgate_version":"dev","config_sha256":"","verify_sha256":"","locks":[` +
 			`{"id":"` + idA + `","revision":2,"hash":"sha256:aaaa","ratification_method":"hook","review_duration_ms":48210}` +
-			`],"outcome":"written","exit_code":0,"conclusion":""}` + "\n"
+			`],"unverifiable_locks":0,"outcome":"written","exit_code":0,"conclusion":""}` + "\n"
 		if got := string(JSON(e)); got != want {
 			t.Errorf("JSON:\n got %s\nwant %s", got, want)
 		}
@@ -90,7 +90,7 @@ func TestAuditEvent_RatificationMethod(t *testing.T) {
 
 	t.Run("the fields are exactly the design's, so none can carry criteria, footprints or intent text", func(t *testing.T) {
 		wantEvent := []string{"schema", "event", "at", "repo", "pr", "base_sha", "head_sha", "base_branch", "author",
-			"author_type", "intentgate_version", "config_sha256", "verify_sha256", "locks", "outcome", "exit_code", "conclusion"}
+			"author_type", "intentgate_version", "config_sha256", "verify_sha256", "locks", "unverifiable_locks", "outcome", "exit_code", "conclusion"}
 		if got := jsonKeys(reflect.TypeOf(Event{})); !reflect.DeepEqual(got, wantEvent) {
 			t.Errorf("Event keys = %v, want %v", got, wantEvent)
 		}
