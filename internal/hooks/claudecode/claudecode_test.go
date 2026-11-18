@@ -152,6 +152,71 @@ func TestRootIntent(t *testing.T) {
 			t.Errorf("text = %q, want %q", text, want)
 		}
 	})
+	t.Run("review 1: compaction summaries and transcript-only entries are skipped", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("kept one", nil),
+			user("This session is being continued from a previous conversation...", m{"isCompactSummary": true}),
+			user("shown in the transcript only", m{"isVisibleInTranscriptOnly": true}),
+			user("kept two", m{"isCompactSummary": false, "isVisibleInTranscriptOnly": false}),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "kept one\n\n---\n\nkept two"; text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+	t.Run("review 1: interrupt markers are skipped, but only when they are the whole text", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("kept one", nil),
+			user("[Request interrupted by user]", nil),
+			user([]m{{"type": "text", "text": "[Request interrupted by user for tool use]"}}, nil),
+			user("  [Request interrupted by user]\n", nil),
+			user("I wrote [Request interrupted by user] on purpose", nil),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "kept one\n\n---\n\nI wrote [Request interrupted by user] on purpose"; text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+	t.Run("review 1: command and shell-output entries are skipped", func(t *testing.T) {
+		in := [][]string{}
+		for _, prefix := range []string{"<command-name>", "<command-message>", "<command-args>", "<local-command-stdout>",
+			"<local-command-stderr>", "<bash-stdout>", "<bash-stderr>"} {
+			in = append(in, []string{prefix + "payload"})
+		}
+		lines := []string{user("kept one", nil)}
+		for _, c := range in {
+			lines = append(lines, user(c[0], nil))
+			lines = append(lines, user([]m{{"type": "text", "text": "\n" + c[0]}}, nil))
+		}
+		lines = append(lines, user("mentions <command-name> mid-sentence", nil), user("<bash-input>ls</bash-input>", nil))
+		text, _, err := RootIntent(join(lines...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// <bash-input> is not on the list: it is the human's own typed command, so it stays.
+		if want := "kept one\n\n---\n\nmentions <command-name> mid-sentence\n\n---\n\n<bash-input>ls</bash-input>"; text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+	t.Run("review 1: system-reminder spans are removed and emptied turns dropped", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("Add SARIF.\n<system-reminder>\nthe date is X\nmore\n</system-reminder>", nil),
+			user("<system-reminder>only a reminder</system-reminder>", nil),
+			user([]m{{"type": "text", "text": "<system-reminder>a</system-reminder>"}, {"type": "text", "text": "Keep it small."}, {"type": "text", "text": "<system-reminder>b</system-reminder>"}}, nil),
+			user("   \n  ", nil),
+			user("A <system-reminder>x</system-reminder> B <system-reminder>y</system-reminder>C", nil),
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "Add SARIF.\n\n---\n\nKeep it small.\n\n---\n\nA  B C"; text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
 	t.Run("draftedBy comes from the last assistant entry, empty when there is none", func(t *testing.T) {
 		_, drafted, err := RootIntent(join(assistant("claude-sonnet-5-5", nil), user("x", nil), assistant("claude-opus-5-5", nil), user("y", nil)))
 		if err != nil || drafted != "claude-code/claude-opus-5-5" {

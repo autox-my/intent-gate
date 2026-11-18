@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -69,10 +70,12 @@ func ParseInput(data []byte) (Input, error) {
 }
 
 type entry struct {
-	Type        string `json:"type"`
-	IsMeta      bool   `json:"isMeta"`
-	IsSidechain bool   `json:"isSidechain"`
-	Message     struct {
+	Type                      string `json:"type"`
+	IsMeta                    bool   `json:"isMeta"`
+	IsSidechain               bool   `json:"isSidechain"`
+	IsCompactSummary          bool   `json:"isCompactSummary"`
+	IsVisibleInTranscriptOnly bool   `json:"isVisibleInTranscriptOnly"`
+	Message                   struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -105,10 +108,43 @@ func turnText(content json.RawMessage) (string, bool) {
 	return text, text != ""
 }
 
+var systemReminder = regexp.MustCompile(`(?s)<system-reminder>.*?</system-reminder>`)
+
+// interruptMarkers are the whole text of an entry Claude Code writes when the human interrupts.
+var interruptMarkers = map[string]bool{
+	"[Request interrupted by user]":              true,
+	"[Request interrupted by user for tool use]": true,
+}
+
+// harnessPrefixes start entries that record a slash command or shell output, not something the
+// human asked the agent.
+var harnessPrefixes = []string{
+	"<command-name>", "<command-message>", "<command-args>",
+	"<local-command-stdout>", "<local-command-stderr>", "<bash-stdout>", "<bash-stderr>",
+}
+
+// humanText cleans the text of a candidate human turn: <system-reminder> spans are removed and the
+// result trimmed. It returns false for a turn that is then empty, an interrupt marker, or a
+// slash-command or shell-output record.
+func humanText(text string) (string, bool) {
+	text = strings.TrimSpace(systemReminder.ReplaceAllString(text, ""))
+	if text == "" || interruptMarkers[text] {
+		return "", false
+	}
+	for _, p := range harnessPrefixes {
+		if strings.HasPrefix(text, p) {
+			return "", false
+		}
+	}
+	return text, true
+}
+
 // RootIntent returns the human turns of a JSONL transcript joined with TurnSeparator, in file
 // order, and "claude-code/<model>" from the last assistant entry (empty if there is none). Human
-// turns are "user" entries whose content is a string or text blocks; meta and sidechain entries and
-// entries carrying a tool_result are skipped. A malformed line is an error; no turns is "".
+// turns are "user" entries whose content is a string or text blocks; meta, sidechain, compaction
+// summary and transcript-only entries, entries carrying a tool_result, interrupt markers and
+// slash-command or shell-output records are skipped, and <system-reminder> spans are removed (see
+// humanText); each kept turn is trimmed. A malformed line is an error; no turns is "".
 func RootIntent(transcript []byte) (text, draftedBy string, err error) {
 	var turns []string
 	for i, line := range bytes.Split(transcript, []byte("\n")) {
@@ -121,11 +157,13 @@ func RootIntent(transcript []byte) (text, draftedBy string, err error) {
 		}
 		switch e.Type {
 		case "user":
-			if e.IsMeta || e.IsSidechain {
+			if e.IsMeta || e.IsSidechain || e.IsCompactSummary || e.IsVisibleInTranscriptOnly {
 				continue
 			}
 			if t, ok := turnText(e.Message.Content); ok {
-				turns = append(turns, t)
+				if t, ok := humanText(t); ok {
+					turns = append(turns, t)
+				}
 			}
 		case "assistant":
 			if !e.IsSidechain {
