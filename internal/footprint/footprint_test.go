@@ -428,15 +428,15 @@ func TestParseConfig(t *testing.T) {
 				t.Errorf("%s: ParseConfig: %v", name, err)
 				continue
 			}
-			if len(cfg.Add) != 0 || len(cfg.Remove) != 0 || !cfg.TestPairing {
-				t.Errorf("%s: cfg = %+v, want no add, no remove, test_pairing true", name, cfg)
+			if len(cfg.Add) != 0 || len(cfg.Remove) != 0 || cfg.NoTestPairing {
+				t.Errorf("%s: cfg = %+v, want no add, no remove, test_pairing on", name, cfg)
 			}
 		}
 	})
 
 	t.Run("version only keeps the defaults", func(t *testing.T) {
 		cfg := mustConfig(t, "version: 1\n")
-		if len(cfg.Add) != 0 || len(cfg.Remove) != 0 || !cfg.TestPairing {
+		if len(cfg.Add) != 0 || len(cfg.Remove) != 0 || cfg.NoTestPairing {
 			t.Errorf("cfg = %+v, want the defaults", cfg)
 		}
 	})
@@ -451,14 +451,14 @@ implicit_footprints:
     - "**/dist/**"
   test_pairing: false
 `)
-		if !reflect.DeepEqual(cfg.Add, []string{"docs/**"}) || !reflect.DeepEqual(cfg.Remove, []string{"**/dist/**"}) || cfg.TestPairing {
+		if !reflect.DeepEqual(cfg.Add, []string{"docs/**"}) || !reflect.DeepEqual(cfg.Remove, []string{"**/dist/**"}) || !cfg.NoTestPairing {
 			t.Errorf("cfg = %+v", cfg)
 		}
 	})
 
 	t.Run("test_pairing defaults to true when omitted", func(t *testing.T) {
 		cfg := mustConfig(t, "version: 1\nimplicit_footprints:\n  add: [\"docs/**\"]\n")
-		if !cfg.TestPairing {
+		if cfg.NoTestPairing {
 			t.Error("test_pairing = false, want true")
 		}
 	})
@@ -506,6 +506,19 @@ implicit_footprints:
 		}
 	})
 
+	t.Run("a zero-value Config means the defaults, test pairing on", func(t *testing.T) {
+		cs := []Criterion{{LockID: "L", ID: "C1", Footprint: []string{"d/x.go"}}}
+		for name, cfg := range map[string]Config{"empty": {}, "add only": {Add: []string{"docs/**"}}} {
+			imp, err := NewImplicit(cfg, nil)
+			if err != nil {
+				t.Fatalf("%s: NewImplicit: %v", name, err)
+			}
+			if reported(t, "d/x_test.go", cs, imp) {
+				t.Errorf("%s: pairing is on by default but d/x_test.go was reported", name)
+			}
+		}
+	})
+
 	errCases := []struct{ name, doc string }{
 		{"remove of a non-default", "version: 1\nimplicit_footprints:\n  remove: [\"src/**\"]\n"},
 		{"remove typo", "version: 1\nimplicit_footprints:\n  remove: [\"**/dst/**\"]\n"},
@@ -531,10 +544,10 @@ implicit_footprints:
 	}
 
 	t.Run("NewImplicit rejects a config that was not parsed", func(t *testing.T) {
-		if _, err := NewImplicit(Config{Add: []string{"[bad"}, TestPairing: true}, nil); err == nil {
+		if _, err := NewImplicit(Config{Add: []string{"[bad"}}, nil); err == nil {
 			t.Error("an invalid add glob in a hand-built Config must be an error")
 		}
-		if _, err := NewImplicit(Config{Remove: []string{"src/**"}, TestPairing: true}, nil); err == nil {
+		if _, err := NewImplicit(Config{Remove: []string{"src/**"}}, nil); err == nil {
 			t.Error("a remove of a non-default in a hand-built Config must be an error")
 		}
 	})

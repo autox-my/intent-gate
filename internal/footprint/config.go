@@ -11,10 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the parsed .intentgate.yml (REQ-0029).
+// Config is the parsed .intentgate.yml (REQ-0029). The zero value means "the defaults": test
+// pairing is on unless NoTestPairing is set (`test_pairing: false`).
 type Config struct {
-	Add, Remove []string
-	TestPairing bool
+	Add, Remove   []string
+	NoTestPairing bool
 }
 
 var lockfileNames = []string{
@@ -51,7 +52,7 @@ type fileConfig struct {
 // Anything else must be a valid version 1 document: unknown keys, a wrong version, an invalid
 // `add` glob and a `remove` that is not exactly a default glob are errors, never "use the defaults".
 func ParseConfig(data []byte) (Config, error) {
-	cfg := Config{TestPairing: true}
+	cfg := Config{}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return cfg, nil
 	}
@@ -72,7 +73,7 @@ func ParseConfig(data []byte) (Config, error) {
 		cfg.Add = ifp.Add
 		cfg.Remove = ifp.Remove
 		if ifp.TestPairing != nil {
-			cfg.TestPairing = *ifp.TestPairing
+			cfg.NoTestPairing = !*ifp.TestPairing
 		}
 	}
 	if _, err := cfg.resolve(); err != nil {
@@ -137,7 +138,7 @@ func NewImplicit(cfg Config, gitattributes []byte) (Implicit, error) {
 	if err != nil {
 		return Implicit{}, err
 	}
-	return Implicit{globs: globs, attrs: rules, testPairing: cfg.TestPairing}, nil
+	return Implicit{globs: globs, attrs: rules, testPairing: !cfg.NoTestPairing}, nil
 }
 
 // contains reports whether path is inside an implicit footprint. A paired test is inside when its
