@@ -323,7 +323,7 @@ func runAmend(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 		fmt.Fprintf(t.out, "  add to %s (%s): %s\n", c.ID, c.Text, *glob)
 		prompt = "Type yes to amend this lock:"
 	} else {
-		fmt.Fprintf(t.out, "  re-ratify as %s (ratified_at is now %s); the criteria stay:\n", by, old.Ratification.RatifiedAt)
+		fmt.Fprintf(t.out, "  re-ratify as %s: ratified_at was %s; the new ratified_at is the time of confirmation; the criteria stay:\n", by, old.Ratification.RatifiedAt)
 		showCriteria(t.out, old.Criteria)
 		prompt = "Type yes to re-ratify this lock:"
 	}

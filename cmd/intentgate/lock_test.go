@@ -624,6 +624,12 @@ func TestAmend_Reratify(t *testing.T) {
 	if !strings.Contains(stdout, "Type yes to re-ratify this lock:") {
 		t.Errorf("stdout lacks the prompt:\n%s", stdout)
 	}
+	// Review 1 of S-05: the old time is shown as the old one; the new one is the time of confirmation.
+	if !strings.Contains(stdout, "ratified_at was "+old.Ratification.RatifiedAt) ||
+		!strings.Contains(stdout, "the new ratified_at is the time of confirmation") ||
+		strings.Contains(stdout, "ratified_at is now") {
+		t.Errorf("stdout does not show the old ratified_at as old and the new as the time of confirmation:\n%s", stdout)
+	}
 	l := e.readLock(path)
 	if ps := lock.Validate(l); len(ps) != 0 || !lock.VerifyHash(l) {
 		t.Errorf("problems %v, hash ok %v", ps, lock.VerifyHash(l))
