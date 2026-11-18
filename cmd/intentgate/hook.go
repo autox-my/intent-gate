@@ -40,6 +40,12 @@ type Deps struct {
 	StateDir string
 	Git      Git
 	Stderr   io.Writer // usage errors only; nil discards
+
+	// Dir is the working directory commands start from; relative paths and git are resolved here.
+	Dir string
+	// IsTerminal reports whether file descriptor fd (0 = stdin, 1 = stdout) is a terminal. A nil
+	// IsTerminal means "no terminal", so ratification is refused (REQ-0005).
+	IsTerminal func(fd int) bool
 }
 
 const (

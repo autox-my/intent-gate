@@ -157,3 +157,150 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 		}
 	})
 }
+
+// amendedFrom is old with revision +1, a glob added to C1 and the amendment recorded, re-hashed.
+func amendedFrom(t *testing.T, old lock.Lock) lock.Lock {
+	t.Helper()
+	next := old
+	next.Revision = old.Revision + 1
+	next.Criteria = []lock.Criterion{{ID: "C1", Text: old.Criteria[0].Text, Footprint: append(append([]string(nil), old.Criteria[0].Footprint...), "docs/api/**")}}
+	next.Amendments = append(append([]lock.Amendment(nil), old.Amendments...), lock.Amendment{
+		Revision: next.Revision, Kind: "add-glob", Criterion: "C1", Glob: "docs/api/**",
+		By: "git:dev@example.com", At: "2026-11-19T10:00:00Z", Method: "cli-confirm",
+	})
+	h, err := lock.Hash(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next.Hash = h
+	return next
+}
+
+func TestStore_Amend(t *testing.T) {
+	const text = "Add SARIF output.\n"
+	setup := func(t *testing.T) (Store, lock.Lock, string, string) {
+		t.Helper()
+		repo, state := emptyDirs(t)
+		st := Store{RepoRoot: repo, StateDir: state}
+		old := builtLock(t, text)
+		if err := st.Write(old, masked(text)); err != nil {
+			t.Fatal(err)
+		}
+		return st, old, filepath.Join(repo, ".intent", old.ID+".yml"), filepath.Join(state, "locks", old.ID, "root-intent.md")
+	}
+
+	t.Run("replaces the lock and leaves the root intent record alone", func(t *testing.T) {
+		st, old, path, rec := setup(t)
+		before, _ := os.ReadFile(rec)
+		next := amendedFrom(t, old)
+		if err := st.Amend(old, next); err != nil {
+			t.Fatalf("Amend: %v", err)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := lock.Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, next) || !lock.VerifyHash(got) || got.Revision != 2 {
+			t.Errorf("the file holds %+v, want %+v", got, next)
+		}
+		after, _ := os.ReadFile(rec)
+		if string(after) != text || string(before) != text {
+			t.Errorf("root intent record %q (was %q), want %q", after, before, text)
+		}
+		entries, _ := os.ReadDir(filepath.Dir(path))
+		if len(entries) != 1 {
+			t.Errorf(".intent holds %d entries after Amend, want just the lock (no temp file)", len(entries))
+		}
+		if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o644 {
+			t.Errorf("lock mode = %v, %v; want 0644", fi.Mode().Perm(), err)
+		}
+	})
+
+	refusals := map[string]func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock{
+		"a different id": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			n := amendedFrom(t, old)
+			n.ID = "01JD8Z6Q4M7R2T9X3B5N8K1C6G"
+			n.Hash, _ = lock.Hash(n)
+			return n
+		},
+		"a different root intent": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			n := amendedFrom(t, old)
+			n.RootIntent.SHA256 = strings.Repeat("c", 64)
+			n.Hash, _ = lock.Hash(n)
+			return n
+		},
+		"a revision that is not old + 1": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			n := amendedFrom(t, old)
+			n.Revision = 3
+			n.Amendments[0].Revision = 3
+			n.Hash, _ = lock.Hash(n)
+			return n
+		},
+		"a lock that does not validate": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			n := amendedFrom(t, old)
+			n.Amendments[0].Glob = "docs/other/**" // not in the footprint
+			n.Hash, _ = lock.Hash(n)
+			return n
+		},
+		"a hash that does not verify": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			n := amendedFrom(t, old)
+			n.Hash = "sha256:" + strings.Repeat("0", 64)
+			return n
+		},
+		"a file on disk that changed since old": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			other := old
+			other.Criteria = []lock.Criterion{{ID: "C1", Text: "Someone else amended this.", Footprint: []string{"x/**"}}}
+			other.Hash, _ = lock.Hash(other)
+			data, err := lock.Marshal(other)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return amendedFrom(t, old)
+		},
+		"a file on disk that was edited without re-hashing": func(t *testing.T, st Store, old lock.Lock, path string) lock.Lock {
+			data, _ := os.ReadFile(path)
+			if err := os.WriteFile(path, []byte(strings.Replace(string(data), "Findings are", "Findings were", 1)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return amendedFrom(t, old)
+		},
+	}
+	for name, mk := range refusals {
+		t.Run("refuses "+name, func(t *testing.T) {
+			st, old, path, rec := setup(t)
+			next := mk(t, st, old, path)
+			before, _ := os.ReadFile(path)
+			recBefore, _ := os.ReadFile(rec)
+			if err := st.Amend(old, next); err == nil {
+				t.Fatal("Amend returned nil")
+			}
+			if after, _ := os.ReadFile(path); !reflect.DeepEqual(before, after) {
+				t.Errorf("the lock file changed:\n%s", after)
+			}
+			if after, _ := os.ReadFile(rec); !reflect.DeepEqual(recBefore, after) {
+				t.Error("the root intent record changed")
+			}
+			if entries, _ := os.ReadDir(filepath.Dir(path)); len(entries) != 1 {
+				t.Errorf(".intent holds %d entries, want just the lock", len(entries))
+			}
+		})
+	}
+
+	t.Run("refuses when there is no lock to replace", func(t *testing.T) {
+		repo, state := emptyDirs(t)
+		old := builtLock(t, text)
+		if err := (Store{RepoRoot: repo, StateDir: state}).Amend(old, amendedFrom(t, old)); err == nil {
+			t.Error("Amend returned nil")
+		}
+		if !isEmpty(t, repo) || !isEmpty(t, state) {
+			t.Error("Amend wrote something")
+		}
+	})
+}

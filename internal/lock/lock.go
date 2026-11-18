@@ -78,8 +78,23 @@ type Ratification struct {
 	DraftedBy        *string `yaml:"drafted_by,omitempty" json:"drafted_by,omitempty"`
 }
 
-// Amendment is parsed as a free-form mapping; its shape is validated by a later slice.
-type Amendment map[string]any
+// Amendment is one entry of amendments: (intent-lock.md §2). STUB (red at the base): typed, but
+// not yet validated and not yet strict about unknown keys.
+type Amendment struct {
+	Revision  int    `yaml:"revision" json:"revision"`
+	Kind      string `yaml:"kind" json:"kind"`
+	Criterion string `yaml:"criterion,omitempty" json:"criterion,omitempty"`
+	Glob      string `yaml:"glob,omitempty" json:"glob,omitempty"`
+	By        string `yaml:"by" json:"by"`
+	At        string `yaml:"at" json:"at"`
+	Method    string `yaml:"method" json:"method"`
+}
+
+// UnmarshalYAML is lenient on purpose in the red stub: Node.Decode does not inherit KnownFields.
+func (a *Amendment) UnmarshalYAML(n *yaml.Node) error {
+	type plain Amendment
+	return n.Decode((*plain)(a))
+}
 
 // Problem is one validation finding. Path is a dotted path such as criteria[0].footprint[1].
 type Problem struct {

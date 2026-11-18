@@ -120,3 +120,8 @@ func createExclusive(path string, data []byte, mode os.FileMode) (err error) {
 	}
 	return nil
 }
+
+// Amend replaces the committed lock for old.ID with next. STUB (red at the base).
+func (s Store) Amend(old, next lock.Lock) error {
+	return errors.New("ratify: Amend is not implemented")
+}

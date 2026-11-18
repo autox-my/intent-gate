@@ -582,3 +582,148 @@ func TestMarshal_FieldOrder(t *testing.T) {
 		last = i
 	}
 }
+
+// amended is validLock with two criteria and a revision 3 history: a glob added, then a re-ratify.
+func amended() Lock {
+	l := validLock()
+	l.Criteria = append(l.Criteria, Criterion{ID: "C2", Text: "The report package has golden tests.", Footprint: []string{"internal/report/testdata/**", "docs/api/**"}})
+	l.Revision = 3
+	l.Amendments = []Amendment{
+		{Revision: 2, Kind: "add-glob", Criterion: "C2", Glob: "docs/api/**", By: "git:dev@example.com", At: "2026-11-19T10:00:00Z", Method: "cli-confirm"},
+		{Revision: 3, Kind: "reratify", By: "git:dev@example.com", At: "2026-12-05T10:00:00Z", Method: "cli-confirm"},
+	}
+	return l
+}
+
+// REQ-0014: an amendment is typed, so root intent text can't ride in it.
+func TestParse_RejectsUnknownAmendmentKeys(t *testing.T) {
+	doc := func(extra string) []byte {
+		fixture := strings.Replace(string(readFixture(t, "valid.yml")), "amendments: []\n",
+			"amendments:\n  - revision: 2\n    kind: reratify\n    by: \"git:dev@example.com\"\n    at: 2026-11-19T10:00:00Z\n    method: cli-confirm\n"+extra, 1)
+		if !strings.Contains(fixture, "kind: reratify") {
+			t.Fatal("the fixture has no amendments: [] line to replace")
+		}
+		return []byte(fixture)
+	}
+	if _, err := Parse(doc("")); err != nil {
+		t.Fatalf("a well-formed amendment does not parse: %v", err)
+	}
+	for _, key := range []string{"root_intent_text", "text", "prompt"} {
+		if _, err := Parse(doc("    " + key + ": \"please add SARIF output\"\n")); err == nil {
+			t.Errorf("an amendment carrying %s parsed without error", key)
+		}
+	}
+}
+
+func TestValidate_Amendments(t *testing.T) {
+	if ps := Validate(amended()); len(ps) != 0 {
+		t.Fatalf("the well-formed amended lock has problems: %v", ps)
+	}
+	mutate := func(f func(*Lock)) Lock {
+		l := amended()
+		l.Criteria = append([]Criterion(nil), l.Criteria...)
+		l.Amendments = append([]Amendment(nil), l.Amendments...)
+		f(&l)
+		return l
+	}
+	cases := []struct {
+		name string
+		l    Lock
+		path string // a problem must be reported at or under this path
+	}{
+		{"revision not 1 + amendments", mutate(func(l *Lock) { l.Revision = 2 }), "revision"},
+		{"amendments without a revision bump", mutate(func(l *Lock) { l.Amendments = nil; l.Revision = 3 }), "revision"},
+		{"revision bumped without an amendment", mutate(func(l *Lock) { l.Amendments = nil; l.Revision = 2 }), "revision"},
+		{"first amendment is revision 3", mutate(func(l *Lock) { l.Amendments[0].Revision = 3 }), "amendments[0].revision"},
+		{"revisions out of order", mutate(func(l *Lock) { l.Amendments[0].Revision, l.Amendments[1].Revision = 3, 2 }), "amendments[0].revision"},
+		{"revision repeated", mutate(func(l *Lock) { l.Amendments[1].Revision = 2 }), "amendments[1].revision"},
+		{"revision below 2", mutate(func(l *Lock) { l.Amendments[0].Revision = 1 }), "amendments[0].revision"},
+		{"unknown kind", mutate(func(l *Lock) { l.Amendments[0].Kind = "remove-glob" }), "amendments[0].kind"},
+		{"empty kind", mutate(func(l *Lock) { l.Amendments[0].Kind = "" }), "amendments[0].kind"},
+		{"add-glob without a criterion", mutate(func(l *Lock) { l.Amendments[0].Criterion = "" }), "amendments[0].criterion"},
+		{"add-glob for a criterion that does not exist", mutate(func(l *Lock) { l.Amendments[0].Criterion = "C9" }), "amendments[0].criterion"},
+		{"add-glob without a glob", mutate(func(l *Lock) { l.Amendments[0].Glob = "" }), "amendments[0].glob"},
+		{"add-glob with a glob that does not parse", mutate(func(l *Lock) {
+			l.Amendments[0].Glob = "docs/[api"
+			l.Criteria[1].Footprint[1] = "docs/[api"
+		}), "amendments[0].glob"},
+		{"add-glob with a bare !", mutate(func(l *Lock) { l.Amendments[0].Glob = "!" }), "amendments[0].glob"},
+		{"add-glob whose glob is not in the footprint", mutate(func(l *Lock) { l.Amendments[0].Glob = "docs/other/**" }), "amendments[0].glob"},
+		{"add-glob whose glob is in another criterion's footprint", mutate(func(l *Lock) { l.Amendments[0].Criterion = "C1" }), "amendments[0].glob"},
+		{"reratify with a criterion", mutate(func(l *Lock) { l.Amendments[1].Criterion = "C1" }), "amendments[1].criterion"},
+		{"reratify with a glob", mutate(func(l *Lock) { l.Amendments[1].Glob = "docs/api/**" }), "amendments[1].glob"},
+		{"empty by", mutate(func(l *Lock) { l.Amendments[0].By = " " }), "amendments[0].by"},
+		{"at not UTC", mutate(func(l *Lock) { l.Amendments[0].At = "2026-11-19T17:00:00+07:00" }), "amendments[0].at"},
+		{"empty at", mutate(func(l *Lock) { l.Amendments[1].At = "" }), "amendments[1].at"},
+		{"unknown method", mutate(func(l *Lock) { l.Amendments[1].Method = "email" }), "amendments[1].method"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if ps := Validate(c.l); !hasProblem(ps, c.path) {
+				t.Errorf("want a problem at %s, got %v", c.path, ps)
+			}
+		})
+	}
+	t.Run("all three methods are accepted", func(t *testing.T) {
+		for _, m := range []string{"hook", "cli-confirm", "issue"} {
+			l := mutate(func(l *Lock) { l.Amendments[0].Method = m })
+			if ps := Validate(l); len(ps) != 0 {
+				t.Errorf("method %s: %v", m, ps)
+			}
+		}
+	})
+	t.Run("a negated glob can be added", func(t *testing.T) {
+		l := mutate(func(l *Lock) {
+			l.Amendments[0].Glob = "!docs/api/private/**"
+			l.Criteria[1].Footprint[1] = "!docs/api/private/**"
+		})
+		if ps := Validate(l); len(ps) != 0 {
+			t.Errorf("%v", ps)
+		}
+	})
+}
+
+func TestHash_AmendmentsAreHashed(t *testing.T) {
+	a := amended()
+	b := amended()
+	b.Amendments = append([]Amendment(nil), b.Amendments...)
+	b.Amendments[0].Glob = "docs/other/**"
+	ha, err1 := Hash(a)
+	hb, err2 := Hash(b)
+	if err1 != nil || err2 != nil || ha == hb {
+		t.Errorf("an amendment's glob does not change the hash: %v %v %s %s", err1, err2, ha, hb)
+	}
+}
+
+// The schema is the public contract for amendments too.
+func TestSchema_Amendments(t *testing.T) {
+	raw, err := os.ReadFile("../../schema/intentgate.lock.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	am, _ := doc["properties"].(map[string]any)["amendments"].(map[string]any)
+	items, _ := am["items"].(map[string]any)
+	if items["additionalProperties"] != false {
+		t.Errorf("schema: amendments.items.additionalProperties = %v, want false", items["additionalProperties"])
+	}
+	props, _ := items["properties"].(map[string]any)
+	for _, k := range []string{"revision", "kind", "criterion", "glob", "by", "at", "method"} {
+		if _, ok := props[k]; !ok {
+			t.Errorf("schema: amendments.items.properties lacks %s", k)
+		}
+	}
+	if _, ok := props["root_intent_text"]; ok {
+		t.Error("schema: amendments.items.properties has root_intent_text")
+	}
+	if rev, _ := props["revision"].(map[string]any); rev["minimum"] != float64(2) {
+		t.Errorf("schema: amendment revision minimum = %v, want 2", rev["minimum"])
+	}
+	kind, _ := props["kind"].(map[string]any)
+	if got, _ := json.Marshal(kind["enum"]); string(got) != `["add-glob","reratify"]` {
+		t.Errorf("schema: amendment kind enum = %s", got)
+	}
+}
