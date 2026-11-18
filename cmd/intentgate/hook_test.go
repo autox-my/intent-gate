@@ -621,3 +621,75 @@ func TestHook_PruneRules(t *testing.T) {
 		}
 	}
 }
+
+// Review 1 of S-04: the built binary prints exactly one JSON object on stdout and nothing on
+// stderr for pre and post, and gives the documented exit codes. It uses a temp INTENTGATE_HOME
+// and a temp repository; the real ~/.intentgate is never touched.
+func TestHook_BuiltBinary(t *testing.T) {
+	e := newEnv(t, "dev@example.com")
+	bin := filepath.Join(t.TempDir(), "intentgate")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	t.Setenv("INTENTGATE_HOME", e.state)
+	t.Setenv("HOME", t.TempDir()) // so nothing can fall back to the real home
+
+	call := func(stdin string, args ...string) (int, string, string) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = e.repo
+		cmd.Stdin = strings.NewReader(stdin)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return code, stdout.String(), stderr.String()
+	}
+	oneObject := func(what, stdout, stderr string) map[string]string {
+		t.Helper()
+		var obj map[string]string
+		dec := json.NewDecoder(strings.NewReader(stdout))
+		if err := dec.Decode(&obj); err != nil || dec.More() || !strings.HasSuffix(stdout, "\n") || strings.Count(stdout, "\n") != 1 {
+			t.Fatalf("%s: stdout %q is not exactly one JSON object line (%v)", what, stdout, err)
+		}
+		if stderr != "" {
+			t.Errorf("%s: stderr %q, want empty", what, stderr)
+		}
+		return obj
+	}
+
+	code, stdout, stderr := call(e.input("PreToolUse", planText, "ExitPlanMode"), "hook", "claude-code", "pre")
+	obj := oneObject("pre", stdout, stderr)
+	if code != 0 || !strings.Contains(obj["systemMessage"], "IntentGate will lock these criteria") {
+		t.Errorf("pre: exit %d, %v", code, obj)
+	}
+	code, stdout, stderr = call(e.input("PostToolUse", planText, "ExitPlanMode"), "hook", "claude-code", "post")
+	obj = oneObject("post", stdout, stderr)
+	if code != 0 || !strings.HasPrefix(obj["systemMessage"], "IntentGate: intent lock written: .intent/") {
+		t.Errorf("post: exit %d, %v", code, obj)
+	}
+	if len(e.locks()) != 1 {
+		t.Errorf("locks: %v", e.locks())
+	}
+	// A failure is still one object, exit 0, quiet stderr.
+	for _, which := range []string{"pre", "post"} {
+		code, stdout, stderr = call("not json", "hook", "claude-code", which)
+		obj = oneObject(which+" with bad input", stdout, stderr)
+		if code != 0 || !strings.HasPrefix(obj["systemMessage"], "IntentGate: no lock: ") {
+			t.Errorf("%s with bad input: exit %d, %v", which, code, obj)
+		}
+	}
+	code, stdout, stderr = call("", "hook", "claude-code", "pre", "extra")
+	obj = oneObject("pre extra", stdout, stderr)
+	if code != 0 || !strings.HasPrefix(obj["systemMessage"], "IntentGate: no lock: ") {
+		t.Errorf("pre extra: exit %d, %v", code, obj)
+	}
+	if code, stdout, stderr = call("", "bogus"); code != 2 || stdout != "" || !strings.Contains(stderr, "usage:") {
+		t.Errorf("bogus: exit %d, stdout %q, stderr %q; want 2, empty, usage", code, stdout, stderr)
+	}
+}
