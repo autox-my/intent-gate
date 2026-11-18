@@ -351,12 +351,12 @@ func TestPublish_OneComment(t *testing.T) {
 		}
 	})
 
-	t.Run("update-if-exists with none: no comment call at all", func(t *testing.T) {
+	t.Run("update-if-exists with none: it looks, and writes no comment", func(t *testing.T) {
 		api := newPubAPI(t)
 		mustPublish(t, outDir(t, true, "success", "update-if-exists", "Clean"))
 		for _, c := range api.called() {
-			if strings.Contains(c.Path, "/issues/") {
-				t.Errorf("comment call %v", c)
+			if strings.Contains(c.Path, "/issues/") && c.Method != "GET" {
+				t.Errorf("comment write %v", c)
 			}
 		}
 		if len(api.comments) != 0 {

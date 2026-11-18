@@ -1,8 +1,10 @@
-// Package github is the first piece of the GitHub adapter: a small client on net/http and
-// encoding/json for the three GETs `intentgate lock --issue` needs.
+// Package github is the GitHub adapter: a small client on net/http and encoding/json for the three
+// GETs `intentgate lock --issue` needs and the check run and comment writes `intentgate publish`
+// makes (checks.go).
 package github
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -150,6 +152,22 @@ func noRedirect(req *http.Request, via []*http.Request) error {
 // get fetches target (a path with an optional query, or an absolute URL from a Link header) and
 // decodes the JSON body into out. A non-2xx is an error with the status and GitHub's message.
 func (c *Client) get(ctx context.Context, target string, out any) (http.Header, error) {
+	return c.do(ctx, http.MethodGet, target, nil, out)
+}
+
+// send writes with method POST or PATCH: body is marshalled as JSON and the response decoded into out.
+func (c *Client) send(ctx context.Context, method, target string, body, out any) error {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("github: %s %s: %w", method, target, err)
+	}
+	_, err = c.do(ctx, method, target, raw, out)
+	return err
+}
+
+// do is one request with the safety rules of this package: an https base (or loopback http), no
+// redirect, a bounded body, and the token only in the Authorization header and never in an error.
+func (c *Client) do(ctx context.Context, method, target string, body []byte, out any) (http.Header, error) {
 	base, err := apiBase(c.BaseURL)
 	if err != nil {
 		return nil, err
@@ -162,14 +180,21 @@ func (c *Client) get(ctx context.Context, target string, out any) (http.Header, 
 		}
 		full = target
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, full, nil)
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, full, rd)
 	if err != nil {
-		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+		return nil, fmt.Errorf("github: %s %s: %w", method, target, scrub(err, c.Token))
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("User-Agent", userAgent)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	hc := &http.Client{Timeout: timeout}
 	if c.HTTP != nil {
@@ -179,26 +204,26 @@ func (c *Client) get(ctx context.Context, target string, out any) (http.Header, 
 	hc.CheckRedirect = noRedirect
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+		return nil, fmt.Errorf("github: %s %s: %w", method, target, scrub(err, c.Token))
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if err != nil {
-		return nil, fmt.Errorf("github: GET %s: %w", target, scrub(err, c.Token))
+		return nil, fmt.Errorf("github: %s %s: %w", method, target, scrub(err, c.Token))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		var m struct {
 			Message string `json:"message"`
 		}
-		_ = json.Unmarshal(body, &m)
+		_ = json.Unmarshal(data, &m)
 		msg := m.Message
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
 		}
-		return nil, fmt.Errorf("github: GET %s: %d %s", target, resp.StatusCode, scrubString(msg, c.Token))
+		return nil, fmt.Errorf("github: %s %s: %d %s", method, target, resp.StatusCode, scrubString(msg, c.Token))
 	}
-	if err := json.Unmarshal(body, out); err != nil {
-		return nil, fmt.Errorf("github: GET %s: bad JSON: %w", target, err)
+	if err := json.Unmarshal(data, out); err != nil {
+		return nil, fmt.Errorf("github: %s %s: bad JSON: %w", method, target, err)
 	}
 	return resp.Header, nil
 }

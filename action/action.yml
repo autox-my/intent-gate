@@ -1,5 +1,90 @@
+# IntentGate's PR check (ADR 0005, pr-check.md): builds `intentgate` from this repository, runs
+# `intentgate verify` and publishes the result as one check run, at most one comment and SARIF.
+# Phase 0 is advisory: no step can fail the job (every step continues on error), and a step that
+# cannot run is skipped, not failed.
+#
+# Values from the event reach the scripts only through `env:`; no ${{ }} appears inside a `run:`.
 name: IntentGate
-description: stub
+description: Check a pull request against the intent locks it adds, and publish the result.
+inputs:
+  go-version:
+    description: Go version used to build intentgate (the go-version input of actions/setup-go).
+    default: stable
+  token:
+    description: Token for the Checks and Issues APIs. A pull request from a fork gets a read-only one; see README.
+    default: ${{ github.token }}
+outputs:
+  exit-code:
+    description: Exit code of `intentgate verify` (0 clean, 1 findings, 3 could not decide). It never fails the job.
+    value: ${{ steps.verify.outputs.exit_code }}
 runs:
   using: composite
-  steps: []
+  steps:
+    # actions/setup-go v6.5.0
+    - id: go
+      if: contains(fromJSON('["pull_request","pull_request_target"]'), github.event_name)
+      uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+      continue-on-error: true
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    - id: build
+      if: steps.go.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        VERSION: ${{ github.action_ref || github.sha }}
+        GOWORK: "off"
+      run: |
+        mkdir -p "$RUNNER_TEMP/intentgate-bin"
+        cd "$ACTION_PATH/.." || exit 1
+        go build -trimpath -ldflags "-X main.version=$VERSION" -o "$RUNNER_TEMP/intentgate-bin/intentgate" ./cmd/intentgate
+
+    - id: verify
+      if: steps.build.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BASE_REF: ${{ github.event.pull_request.base.ref }}
+        AUTHOR: ${{ github.event.pull_request.user.login }}
+        AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      run: |
+        out="$RUNNER_TEMP/intentgate"
+        rm -rf "$out"
+        if "$RUNNER_TEMP/intentgate-bin/intentgate" verify --base "$BASE_SHA" --head "$HEAD_SHA" --base-branch "$BASE_REF" --author "$AUTHOR" --author-type "$AUTHOR_TYPE" --out-dir "$RUNNER_TEMP/intentgate"; then
+          code=0
+        else
+          code=$?
+        fi
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        if [ -f "$out/results.sarif" ] && [ -f "$out/decision.json" ] && grep -Eq '"publish":[[:space:]]*true' "$out/decision.json"; then
+          echo "upload=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "upload=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - id: publish
+      if: steps.verify.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        if ! "$RUNNER_TEMP/intentgate-bin/intentgate" publish --out-dir "$RUNNER_TEMP/intentgate" --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --head-sha "$HEAD_SHA"; then
+          echo "::warning title=IntentGate::The result could not be published. A pull request from a fork gets a read-only token, so it cannot write a check run or a comment."
+        fi
+
+    # github/codeql-action v4.39.3
+    - id: upload
+      if: steps.verify.outputs.upload == 'true'
+      uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066
+      continue-on-error: true
+      with:
+        sarif_file: ${{ runner.temp }}/intentgate/results.sarif
+        category: intentgate
