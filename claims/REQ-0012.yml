@@ -12,5 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/lock::TestHash_StableUnderReformatting"
-  - "intentgate/internal/lock::TestHash_ChangesWithContent"
+  - "intentgate/internal/lock::TestValidate_ReviewDuration"

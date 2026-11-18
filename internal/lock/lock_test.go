@@ -21,10 +21,12 @@ func validLock() Lock {
 			ID: "C1", Text: "Footprint findings are published as SARIF.",
 			Footprint: []string{"internal/report/**", "!internal/report/legacy/**"},
 		}},
-		Ratification: Ratification{Ratifier: "github:octocat", RatifiedAt: "2026-11-18T09:14:03Z", Method: "hook"},
+		Ratification: Ratification{Ratifier: "github:octocat", RatifiedAt: "2026-11-18T09:14:03Z", Method: "hook", ReviewDurationMS: intp(48210)},
 		Amendments:   []Amendment{},
 	}
 }
+
+func intp(n int) *int { return &n }
 
 func criteria(n int) []Criterion {
 	cs := make([]Criterion, n)
@@ -184,7 +186,83 @@ func TestValidate_ULID(t *testing.T) {
 	}
 }
 
+// parseVariant parses valid.yml after replacing old with new (old must occur in the fixture).
+func parseVariant(t *testing.T, old, repl string) Lock {
+	t.Helper()
+	src := string(readFixture(t, "valid.yml"))
+	if !strings.Contains(src, old) {
+		t.Fatalf("fixture does not contain %q", old)
+	}
+	l, err := Parse([]byte(strings.Replace(src, old, repl, 1)))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	return l
+}
+
 // REQ-0012
+func TestValidate_ReviewDuration(t *testing.T) {
+	const line = "  review_duration_ms: 48210\n"
+	for _, tc := range []struct {
+		name    string
+		repl    string
+		wantBad bool
+	}{
+		{"missing", "", true},
+		{"negative", "  review_duration_ms: -5\n", true},
+		{"zero", "  review_duration_ms: 0\n", false},
+		{"positive", line, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ps := Validate(parseVariant(t, line, tc.repl))
+			if got := hasProblem(ps, "ratification.review_duration_ms"); got != tc.wantBad {
+				t.Fatalf("problem = %v, want %v (problems: %v)", got, tc.wantBad, ps)
+			}
+			if !tc.wantBad && len(ps) != 0 {
+				t.Fatalf("lock should be valid, got %v", ps)
+			}
+		})
+	}
+}
+
+// REQ-0013: a scalar key that is present (even zero-valued) is content and differs from the key
+// absent; an absent list and an empty list hash the same (intent-lock.md §3).
+func TestHash_Presence(t *testing.T) {
+	mustHash := func(l Lock) string {
+		t.Helper()
+		h, err := Hash(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	const dur = "  review_duration_ms: 48210\n"
+	const drafted = "  drafted_by: \"claude-code/claude-opus-5-5\"\n"
+	t.Run("review_duration_ms 0 differs from absent", func(t *testing.T) {
+		if mustHash(parseVariant(t, dur, "  review_duration_ms: 0\n")) == mustHash(parseVariant(t, dur, "")) {
+			t.Fatal("review_duration_ms: 0 hashes the same as the key absent")
+		}
+	})
+	t.Run("drafted_by empty differs from absent", func(t *testing.T) {
+		if mustHash(parseVariant(t, drafted, "  drafted_by: \"\"\n")) == mustHash(parseVariant(t, drafted, "")) {
+			t.Fatal(`drafted_by: "" hashes the same as the key absent`)
+		}
+	})
+	t.Run("nil and empty lists hash the same", func(t *testing.T) {
+		a, b := validLock(), validLock()
+		a.Amendments, b.Amendments = nil, []Amendment{}
+		a.Criteria[0].Footprint, b.Criteria[0].Footprint = nil, []string{}
+		if mustHash(a) != mustHash(b) {
+			t.Fatal("nil lists hash differently from empty lists")
+		}
+		a.Criteria, b.Criteria = nil, []Criterion{}
+		if mustHash(a) != mustHash(b) {
+			t.Fatal("nil criteria hash differently from empty criteria")
+		}
+	})
+}
+
+// REQ-0013
 func TestHash_StableUnderReformatting(t *testing.T) {
 	a, err := Parse(readFixture(t, "valid.yml"))
 	if err != nil {
@@ -210,7 +288,7 @@ func TestHash_StableUnderReformatting(t *testing.T) {
 	}
 }
 
-// REQ-0012
+// REQ-0013
 func TestHash_ChangesWithContent(t *testing.T) {
 	base := validLock()
 	h0, err := Hash(base)

@@ -64,13 +64,15 @@ type Criterion struct {
 }
 
 // Ratification records who locked the intent, when and how. RatifiedAt is kept as the RFC 3339
-// text so that hashing never depends on re-formatting a time.
+// text so that hashing never depends on re-formatting a time. The optional scalars are pointers
+// so that a key present with a zero value (0, "") is distinct from the key absent, and the hash
+// tells them apart (omitempty only drops a nil pointer).
 type Ratification struct {
-	Ratifier         string `yaml:"ratifier" json:"ratifier"`
-	RatifiedAt       string `yaml:"ratified_at" json:"ratified_at"`
-	Method           string `yaml:"method" json:"method"`
-	ReviewDurationMS int    `yaml:"review_duration_ms,omitempty" json:"review_duration_ms,omitempty"`
-	DraftedBy        string `yaml:"drafted_by,omitempty" json:"drafted_by,omitempty"`
+	Ratifier         string  `yaml:"ratifier" json:"ratifier"`
+	RatifiedAt       string  `yaml:"ratified_at" json:"ratified_at"`
+	Method           string  `yaml:"method" json:"method"`
+	ReviewDurationMS *int    `yaml:"review_duration_ms,omitempty" json:"review_duration_ms,omitempty"`
+	DraftedBy        *string `yaml:"drafted_by,omitempty" json:"drafted_by,omitempty"`
 }
 
 // Amendment is parsed as a free-form mapping; its shape is validated by a later slice.
@@ -171,6 +173,13 @@ func Validate(l Lock) []Problem {
 	if !contains(methods, r.Method) {
 		add("ratification.method", "must be one of %s, got %q", strings.Join(methods, ", "), r.Method)
 	}
+	// REQ-0012: recorded, never judged
+	switch {
+	case r.ReviewDurationMS == nil:
+		add("ratification.review_duration_ms", "is required")
+	case *r.ReviewDurationMS < 0:
+		add("ratification.review_duration_ms", "must be an integer of at least 0, got %d", *r.ReviewDurationMS)
+	}
 
 	sort.SliceStable(ps, func(i, j int) bool {
 		if ps[i].Path != ps[j].Path {
@@ -182,7 +191,8 @@ func Validate(l Lock) []Problem {
 }
 
 // Hash returns "sha256:" + hex of the canonical JSON (RFC 8785 subset) of the lock with its hash
-// field removed (REQ-0012). Absent and empty lists hash the same.
+// field removed (REQ-0013). Absent and empty lists hash the same; a scalar key present with a
+// zero value hashes differently from the key absent.
 func Hash(l Lock) (string, error) {
 	l.Hash = ""
 	if l.Amendments == nil {
