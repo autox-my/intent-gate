@@ -1,0 +1,5 @@
+name: IntentGate
+description: stub
+runs:
+  using: composite
+  steps: []
