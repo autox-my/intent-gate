@@ -50,10 +50,13 @@ type Lock struct {
 	Hash         string       `yaml:"hash" json:"hash,omitempty"`
 }
 
-// RootIntent binds the lock to the root intent by hash only.
+// RootIntent binds the lock to the root intent by hash only. Redactions is the number of secrets
+// masked before hashing (REQ-0015); it is a pointer so that a missing key (a problem) is distinct
+// from 0, and the hash tells them apart.
 type RootIntent struct {
-	SHA256 string `yaml:"sha256" json:"sha256"`
-	Source string `yaml:"source" json:"source"`
+	SHA256     string `yaml:"sha256" json:"sha256"`
+	Source     string `yaml:"source" json:"source"`
+	Redactions *int   `yaml:"redactions,omitempty" json:"redactions,omitempty"`
 }
 
 // Criterion is one acceptance criterion with its footprint globs.
@@ -266,3 +269,6 @@ func contains(set []string, s string) bool {
 	}
 	return false
 }
+
+// Marshal renders the lock as YAML with the field order of intent-lock.md §2 (stub).
+func Marshal(l Lock) ([]byte, error) { return nil, nil }

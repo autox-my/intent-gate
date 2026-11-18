@@ -1,16 +1,22 @@
 package lock
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
-const goldenHash = "sha256:799b9e8f531b8ed86c5c1cb524cf132cc1d4b89da61e09c2961aca367a028fff"
+// goldenHash was recomputed outside Go for S-03 (redactions: 0 added to valid.yml): a Python script
+// builds the same document as a dict, serialises it with json.dumps(sort_keys=True, separators=(",", ":"),
+// ensure_ascii=False) (RFC 8785 for an ASCII, integer-only document) and takes SHA-256. The same script
+// without redactions reproduces the S-01 golden, sha256:799b9e8f…028fff.
+const goldenHash = "sha256:cb26e52bf91c8f6a41db7bbf1e170e73aee2795e16fc80c67aa0bb0d5b2927fb"
 
 func validLock() Lock {
 	return Lock{
@@ -18,7 +24,7 @@ func validLock() Lock {
 		ID:         "01JD8Z6Q4M7R2T9X3B5N8K1C6F",
 		Revision:   1,
 		BaseRef:    "main",
-		RootIntent: RootIntent{SHA256: strings.Repeat("ab", 32), Source: "claude-code-session"},
+		RootIntent: RootIntent{SHA256: strings.Repeat("ab", 32), Source: "claude-code-session", Redactions: intp(0)},
 		Criteria: []Criterion{{
 			ID: "C1", Text: "Footprint findings are published as SARIF.",
 			Footprint: []string{"internal/report/**", "!internal/report/legacy/**"},
@@ -227,6 +233,31 @@ func TestValidate_ReviewDuration(t *testing.T) {
 	}
 }
 
+// REQ-0015: the redaction count is required and at least 0 (S-03).
+func TestValidate_Redactions(t *testing.T) {
+	const line = "  redactions: 0\n"
+	for _, tc := range []struct {
+		name    string
+		repl    string
+		wantBad bool
+	}{
+		{"missing", "", true},
+		{"negative", "  redactions: -1\n", true},
+		{"zero", line, false},
+		{"positive", "  redactions: 3\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ps := Validate(parseVariant(t, line, tc.repl))
+			if got := hasProblem(ps, "root_intent.redactions"); got != tc.wantBad {
+				t.Fatalf("problem = %v, want %v (problems: %v)", got, tc.wantBad, ps)
+			}
+			if !tc.wantBad && len(ps) != 0 {
+				t.Fatalf("lock should be valid, got %v", ps)
+			}
+		})
+	}
+}
+
 // REQ-0013: a scalar key that is present (even zero-valued) is content and differs from the key
 // absent; an absent list and an empty list hash the same (intent-lock.md §3).
 func TestHash_Presence(t *testing.T) {
@@ -243,6 +274,13 @@ func TestHash_Presence(t *testing.T) {
 	t.Run("review_duration_ms 0 differs from absent", func(t *testing.T) {
 		if mustHash(parseVariant(t, dur, "  review_duration_ms: 0\n")) == mustHash(parseVariant(t, dur, "")) {
 			t.Fatal("review_duration_ms: 0 hashes the same as the key absent")
+		}
+	})
+	t.Run("redactions 0 differs from 1", func(t *testing.T) {
+		a, b := validLock(), validLock()
+		b.RootIntent.Redactions = intp(1)
+		if mustHash(a) == mustHash(b) {
+			t.Fatal("the redaction count is not counted in the hash")
 		}
 	})
 	t.Run("drafted_by empty differs from absent", func(t *testing.T) {
@@ -475,5 +513,72 @@ func TestSchema_AgreesWithValidation(t *testing.T) {
 
 	if d, _ := doc["description"].(string); !strings.Contains(d, "duplicate criterion id") {
 		t.Error("schema: description does not say duplicate criterion ids are rejected by the Go validator")
+	}
+}
+
+func TestMarshal_RoundTrip(t *testing.T) {
+	drafted := "claude-code/claude-opus-5-5"
+	full := validLock()
+	full.Criteria = append(full.Criteria, Criterion{ID: "C2", Text: "Quotes \"and\" colons: # and\nnewlines, non-ASCII é 日本", Footprint: []string{"a/**", "!a/b/**"}})
+	full.Ratification.DraftedBy = &drafted
+	full.RootIntent.Redactions = intp(2)
+	h, err := Hash(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full.Hash = h
+	zero := validLock()
+	zero.Ratification.ReviewDurationMS = intp(0)
+	empty := ""
+	zero.Ratification.DraftedBy = &empty
+	zero.Hash = h
+
+	fixture, err := Parse(readFixture(t, "valid.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, l := range map[string]Lock{"full": full, "zero-valued optionals": zero, "valid.yml": fixture} {
+		t.Run(name, func(t *testing.T) {
+			out, err := Marshal(l)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			got, err := Parse(out)
+			if err != nil {
+				t.Fatalf("Parse(Marshal(l)): %v\n%s", err, out)
+			}
+			if !reflect.DeepEqual(got, l) {
+				t.Fatalf("round trip changed the lock\n got: %+v\nwant: %+v\nyaml:\n%s", got, l, out)
+			}
+			h0, _ := Hash(l)
+			h1, _ := Hash(got)
+			if h0 != h1 {
+				t.Fatalf("round trip changed the hash: %s vs %s", h0, h1)
+			}
+			again, err := Marshal(got)
+			if err != nil || !bytes.Equal(again, out) {
+				t.Fatalf("Marshal is not deterministic or not stable under Parse: %v\n%s\n%s", err, out, again)
+			}
+		})
+	}
+}
+
+// intent-lock.md §2: the field order of the committed file is fixed.
+func TestMarshal_FieldOrder(t *testing.T) {
+	l := validLock()
+	drafted := "x"
+	l.Ratification.DraftedBy = &drafted
+	out, err := Marshal(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := -1
+	for _, key := range []string{"schema:", "\nid:", "\nrevision:", "\nbase_ref:", "\nroot_intent:", "\n  sha256:", "\n  source:", "\n  redactions:",
+		"\ncriteria:", "\nratification:", "\n  ratifier:", "\n  ratified_at:", "\n  method:", "\n  review_duration_ms:", "\n  drafted_by:", "\namendments:", "\nhash:"} {
+		i := strings.Index(string(out), key)
+		if i < 0 || i < last {
+			t.Fatalf("key %q is missing or out of order (at %d, after %d) in:\n%s", key, i, last, out)
+		}
+		last = i
 	}
 }

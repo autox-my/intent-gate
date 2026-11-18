@@ -14,6 +14,7 @@ criteria:
         - internal/report/testdata/**
 root_intent:
     source: claude-code-session
+    redactions: 0
     sha256: "9f2c4a7b1d3e5f60718293a4b5c6d7e8f9011223344556677889900aabbccdde"
 base_ref: "main"
 revision: 1
