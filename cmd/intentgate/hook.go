@@ -166,6 +166,11 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 
 func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
 	now := deps.Now()
+	// No pending record, no lock: post only counts as an approval after pre showed the criteria.
+	shownAt, ok := readPending(recPath)
+	if !ok {
+		return claudecode.Output{}, errors.New("no pending record; was the plan shown by the PreToolUse hook?")
+	}
 	plan := in.ToolResponse.Plan
 	if plan == "" {
 		return claudecode.Output{}, errors.New("the approved plan is missing from the hook input")
@@ -206,10 +211,8 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	}
 
 	var durationMS int
-	if rec, ok := readPending(recPath); ok {
-		if ms := now.Sub(rec).Milliseconds(); ms > 0 {
-			durationMS = int(ms)
-		}
+	if ms := now.Sub(shownAt).Milliseconds(); ms > 0 {
+		durationMS = int(ms)
 	}
 	l, masked, err := ratify.MaskAndBuild(nil, rootIntent, ratify.BuildInput{
 		ID:               id,

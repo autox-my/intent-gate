@@ -116,6 +116,14 @@ func (e *env) run(which, stdin string) (int, map[string]string) {
 	return code, obj
 }
 
+// pre runs a successful PreToolUse for planText, so a later post has its pending record.
+func (e *env) pre() {
+	e.t.Helper()
+	if code, obj := e.run("pre", e.input("PreToolUse", planText, "ExitPlanMode")); code != 0 || len(e.pendingFiles()) != 1 {
+		e.t.Fatalf("setup pre: exit %d, %v, pending %v", code, obj, e.pendingFiles())
+	}
+}
+
 func (e *env) locks() []string {
 	m, _ := filepath.Glob(filepath.Join(e.repo, ".intent", "*.yml"))
 	return m
@@ -290,12 +298,14 @@ func TestHook_FailsOpen(t *testing.T) {
 	})
 	t.Run("missing transcript", func(t *testing.T) {
 		e := newEnv(t, "dev@example.com")
+		e.pre()
 		e.tpath += ".missing"
 		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
 		noLock(t, e, code, obj)
 	})
 	t.Run("transcript with no human turns", func(t *testing.T) {
 		e := newEnv(t, "dev@example.com")
+		e.pre()
 		if err := os.WriteFile(e.tpath, []byte(`{"type":"assistant","message":{"model":"m"}}`+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -304,17 +314,20 @@ func TestHook_FailsOpen(t *testing.T) {
 	})
 	t.Run("empty user.email", func(t *testing.T) {
 		e := newEnv(t, "")
+		e.pre()
 		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
 		noLock(t, e, code, obj)
 	})
 	t.Run("no base ref", func(t *testing.T) {
 		e := newEnv(t, "dev@example.com")
+		e.pre()
 		gitIn(t, e.repo, "branch", "-m", "main", "develop")
 		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
 		noLock(t, e, code, obj)
 	})
 	t.Run("cwd outside a repository", func(t *testing.T) {
 		e := newEnv(t, "dev@example.com")
+		e.pre()
 		in := strings.Replace(e.input("PostToolUse", planText, "ExitPlanMode"), filepath.Join(e.repo, "sub"), t.TempDir(), 1)
 		code, obj := e.run("post", in)
 		noLock(t, e, code, obj)
@@ -339,11 +352,12 @@ func TestHook_FailsOpen(t *testing.T) {
 	})
 	t.Run("a lock id that already exists", func(t *testing.T) {
 		e := newEnv(t, "dev@example.com")
-		e.run("pre", e.input("PreToolUse", planText, "ExitPlanMode"))
+		e.pre()
 		e.deps.Rand = bytes.NewReader(bytes.Repeat([]byte{0x2a}, 1000))
-		if code, _ := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode")); code != 0 {
-			t.Fatal("first post failed")
+		if code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode")); code != 0 || len(e.locks()) != 1 {
+			t.Fatalf("first post failed: %d %v", code, obj)
 		}
+		e.pre() // a second approval with a pending record, but the same ULID
 		e.deps.Rand = bytes.NewReader(bytes.Repeat([]byte{0x2a}, 1000))
 		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
 		if code != 0 || !strings.Contains(obj["systemMessage"], "no lock:") {
@@ -394,17 +408,56 @@ func TestHook_ApprovedPlanDiffersFromPre(t *testing.T) {
 	}
 }
 
+// Review 1 of S-04: post without a pending record for the same session and tool use writes no lock.
 func TestHook_PostWithoutPendingRecord(t *testing.T) {
-	e := newEnv(t, "dev@example.com")
-	code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
-	if code != 0 || !strings.HasPrefix(obj["systemMessage"], "IntentGate: intent lock written:") {
-		t.Fatalf("post: exit %d, %v", code, obj)
-	}
-	data, _ := os.ReadFile(e.locks()[0])
-	l, _ := lock.Parse(data)
-	if l.Ratification.ReviewDurationMS == nil || *l.Ratification.ReviewDurationMS != 0 {
-		t.Errorf("review_duration_ms = %v, want 0", l.Ratification.ReviewDurationMS)
-	}
+	t.Run("no pre at all", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
+		if code != 0 {
+			t.Errorf("exit = %d, want 0", code)
+		}
+		want := "IntentGate: no lock: no pending record; was the plan shown by the PreToolUse hook?"
+		if obj["systemMessage"] != want || len(obj) != 1 {
+			t.Errorf("systemMessage = %q, want %q", obj["systemMessage"], want)
+		}
+		e.nothingWritten()
+	})
+	t.Run("a pending record for another tool use", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		e.pre()
+		in := strings.Replace(e.input("PostToolUse", planText, "ExitPlanMode"), `"toolu_01"`, `"toolu_02"`, 1)
+		code, obj := e.run("post", in)
+		if code != 0 || !strings.Contains(obj["systemMessage"], "no lock: no pending record") {
+			t.Errorf("exit %d, %v", code, obj)
+		}
+		e.nothingWritten()
+	})
+	t.Run("an unparseable pending record", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		e.pre()
+		if err := os.WriteFile(e.pendingFiles()[0], []byte("not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
+		if code != 0 || !strings.Contains(obj["systemMessage"], "no lock: no pending record") {
+			t.Errorf("exit %d, %v", code, obj)
+		}
+		e.nothingWritten()
+	})
+	t.Run("a pending record in the future gives 0 ms", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		e.pre()
+		e.now = t0.Add(-time.Hour) // the clock went back: now − finished_at is negative
+		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
+		if code != 0 || len(e.locks()) != 1 {
+			t.Fatalf("exit %d, %v", code, obj)
+		}
+		data, _ := os.ReadFile(e.locks()[0])
+		l, _ := lock.Parse(data)
+		if l.Ratification.ReviewDurationMS == nil || *l.Ratification.ReviewDurationMS != 0 {
+			t.Errorf("review_duration_ms = %v, want 0", l.Ratification.ReviewDurationMS)
+		}
+	})
 }
 
 func TestHook_PrintConfig(t *testing.T) {
