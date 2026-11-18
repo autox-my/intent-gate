@@ -171,9 +171,30 @@ func TestLock_FromPlan(t *testing.T) {
 		plan := e.write("plan.md", planText)
 		code, stdout, stderr := e.do([]string{"lock", "--from-plan", plan},
 			"Please add SARIF output.\n", "\n", "Keep it small.\n", ".\n", "yes\n")
-		check(t, e, code, stdout, stderr, rootIntent)
+		check(t, e, code, stdout, stderr, rootIntent+"\n") // review 1 of S-05: every pasted line ends in a newline
 		if !strings.Contains(stdout, "Paste the root intent (the request the plan answers), then a line with only `.`:") {
 			t.Errorf("stdout lacks the paste prompt:\n%s", stdout)
+		}
+	})
+	t.Run("a pasted root intent and a --prompt file with the same lines hash the same", func(t *testing.T) {
+		hashOf := func(args func(e *env, plan string) []string, lines ...string) string {
+			e := newEnv(t, "dev@example.com")
+			e.terminals(true, true)
+			plan := e.write("plan.md", planText)
+			code, _, stderr := e.do(args(e, plan), lines...)
+			if code != 0 {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			l, _ := e.onlyLock()
+			return l.RootIntent.SHA256
+		}
+		pasted := hashOf(func(e *env, plan string) []string { return []string{"lock", "--from-plan", plan} },
+			"Please add SARIF output.\n", "\n", "Keep it small.\n", ".\n", "yes\n")
+		fromFile := hashOf(func(e *env, plan string) []string {
+			return []string{"lock", "--from-plan", plan, "--prompt", e.write("prompt.txt", rootIntent+"\n")}
+		}, "yes\n")
+		if pasted != fromFile {
+			t.Errorf("pasted root_intent.sha256 %s != --prompt file %s", pasted, fromFile)
 		}
 	})
 	t.Run("a relative plan path is resolved from the working directory", func(t *testing.T) {

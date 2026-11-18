@@ -196,7 +196,7 @@ func runLock(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 // pasteRootIntent reads the root intent from the terminal, up to a line with only a dot.
 func (t *term) pasteRootIntent() (string, error) {
 	fmt.Fprintln(t.out, "Paste the root intent (the request the plan answers), then a line with only `.`:")
-	var lines []string
+	var b strings.Builder
 	for {
 		line, err := t.in.ReadString('\n')
 		if err != nil && line == "" {
@@ -204,9 +204,10 @@ func (t *term) pasteRootIntent() (string, error) {
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if strings.TrimSpace(line) == "." {
-			return strings.Join(lines, "\n"), nil
+			return b.String(), nil
 		}
-		lines = append(lines, line)
+		b.WriteString(line)
+		b.WriteByte('\n') // each pasted line ends in a newline, like the same lines in a --prompt file
 	}
 }
 
