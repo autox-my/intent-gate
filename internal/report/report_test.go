@@ -60,7 +60,8 @@ func TestSARIF(t *testing.T) {
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "cmd/main.go"
+                  "uri": "cmd/main.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
@@ -76,7 +77,8 @@ func TestSARIF(t *testing.T) {
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": "internal/gitx/diff.go"
+                  "uri": "internal/gitx/diff.go",
+                  "uriBaseId": "%SRCROOT%"
                 }
               }
             }
@@ -131,6 +133,50 @@ func TestSARIF(t *testing.T) {
 		if _, hasRegion := res.Locations[0].PhysicalLocation["region"]; hasRegion {
 			t.Error("a finding has no line, so the location must have no region")
 		}
+	}
+}
+
+// Review 1 of S-07: the uri is the repo-relative path percent-encoded segment by segment (RFC 3986,
+// "/" kept), relative to %SRCROOT%.
+func TestSARIF_URIIsPercentEncoded(t *testing.T) {
+	tests := []struct{ path, want string }{
+		{"docs/a b#1.go", "docs/a%20b%231.go"},
+		{"plain/path-1_2.~x.go", "plain/path-1_2.~x.go"},
+		{"100%/q?x=1&y.go", "100%25/q%3Fx%3D1%26y.go"},
+		{"c:/odd.go", "c%3A/odd.go"}, // a ":" in the first segment would read as a URI scheme
+		{"日本/ü.go", "%E6%97%A5%E6%9C%AC/%C3%BC.go"},
+		{"a\\b/[c].go", "a%5Cb/%5Bc%5D.go"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			r := verify.Result{Outcome: verify.Findings, ExitCode: 1, Findings: []footprint.Finding{
+				{Path: tc.path, Status: footprint.Added, NearestCriterion: "C1", LockID: lockID, Fix: "fix"}}}
+			var doc struct {
+				Runs []struct {
+					Results []struct {
+						Locations []struct {
+							PhysicalLocation struct {
+								ArtifactLocation struct {
+									URI       string `json:"uri"`
+									URIBaseID string `json:"uriBaseId"`
+								} `json:"artifactLocation"`
+							} `json:"physicalLocation"`
+						}
+						Message struct{ Text string }
+					}
+				}
+			}
+			if err := json.Unmarshal(report.SARIF(r, "dev"), &doc); err != nil {
+				t.Fatal(err)
+			}
+			loc := doc.Runs[0].Results[0].Locations[0].PhysicalLocation.ArtifactLocation
+			if loc.URI != tc.want || loc.URIBaseID != "%SRCROOT%" {
+				t.Errorf("uri = %q base %q, want %q base %%SRCROOT%%", loc.URI, loc.URIBaseID, tc.want)
+			}
+			if !strings.HasPrefix(doc.Runs[0].Results[0].Message.Text, tc.path+" ") {
+				t.Errorf("the message names the path as it is, got %q", doc.Runs[0].Results[0].Message.Text)
+			}
+		})
 	}
 }
 
