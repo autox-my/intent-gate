@@ -52,6 +52,8 @@ Phase 0 ships one hook, for Claude Code.
 
 The human's click on Claude Code's own approval prompt **is** the confirmation. The agent can't click it, which is why this path counts as human-ratified without any extra step (v2 review §0).
 
+What `method: hook` attests is that Claude Code's hook runner called `post` after a `pre` for the same tool call; `post` refuses to write a lock without that `pre` record. It does not prove a click: any local process can run both commands with forged input. That is ADR 0003's position (ratification is recorded, not enforced in Phase 0), and the PR check must not present `method: hook` as stronger evidence than that.
+
 **Verified 2026-11-18** (Claude Code hooks reference, code.claude.com/docs/en/hooks, and an experiment on Claude Code 2.1.327):
 
 - Input: `tool_input.plan` and `tool_input.planFilePath` in `PreToolUse`; `tool_response.plan` and `tool_response.filePath` in `PostToolUse`; both carry `session_id`, `transcript_path`, `cwd`, `tool_use_id`.
