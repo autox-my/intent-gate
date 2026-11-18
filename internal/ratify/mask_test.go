@@ -85,3 +85,46 @@ func TestMaskWith_FindingNotInText(t *testing.T) {
 		}
 	})
 }
+
+// REQ-0015
+func TestMaskWith_Spans(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		fs   []Finding
+		want string
+		n    int
+	}{
+		{"overlapping findings are one span", "xxabcdefghixx",
+			[]Finding{{"r1", "abcdef"}, {"r2", "defghi"}}, "xx[REDACTED:r1]xx", 1},
+		{"the order of the findings does not matter", "xxabcdefghixx",
+			[]Finding{{"r2", "defghi"}, {"r1", "abcdef"}}, "xx[REDACTED:r1]xx", 1},
+		{"adjacent findings are one span", "ab-cdcd-ef",
+			[]Finding{{"r1", "cdcd"}, {"r2", "ab-"}, {"r3", "-ef"}}, "[REDACTED:r2]", 1},
+		{"a finding inside another is absorbed", "x SECRETVALUE y",
+			[]Finding{{"r2", "RETV"}, {"r1", "SECRETVALUE"}}, "x [REDACTED:r1] y", 1},
+		{"the rule of the earliest-starting finding names the span", "xxabcdefghixx",
+			[]Finding{{"a-late", "defghi"}, {"z-early", "abcdef"}}, "xx[REDACTED:z-early]xx", 1},
+		{"same start: the smaller rule id names the span", "xxabcdefxx",
+			[]Finding{{"r2", "abcdef"}, {"r1", "abc"}}, "xx[REDACTED:r1]xx", 1},
+		{"disjoint findings stay separate", "a-AAA-b-BBB-c",
+			[]Finding{{"r2", "BBB"}, {"r1", "AAA"}}, "a-[REDACTED:r1]-b-[REDACTED:r2]-c", 2},
+		{"every occurrence of a secret is a span", "AAA and AAA and AAA",
+			[]Finding{{"r1", "AAA"}}, "[REDACTED:r1] and [REDACTED:r1] and [REDACTED:r1]", 3},
+		{"a duplicate finding changes nothing", "x AAA y",
+			[]Finding{{"r1", "AAA"}, {"r1", "AAA"}}, "x [REDACTED:r1] y", 1},
+		{"non-ASCII text around a span", "é日本 AAA 日本é",
+			[]Finding{{"r1", "AAA"}}, "é日本 [REDACTED:r1] 日本é", 1},
+		{"no findings: unchanged", "nothing here\n", nil, "nothing here\n", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, n, err := MaskWith(stub(tc.fs...), tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if m.String() != tc.want || n != tc.n {
+				t.Fatalf("got (%q, %d), want (%q, %d)", m, n, tc.want, tc.n)
+			}
+		})
+	}
+}

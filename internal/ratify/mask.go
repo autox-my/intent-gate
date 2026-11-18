@@ -62,47 +62,65 @@ func gitleaksDetector(text string) ([]Finding, error) {
 	return out, nil
 }
 
-// Mask scans text with gitleaks' detection library (default config) and replaces each finding's
-// secret with [REDACTED:<rule-id>]. It returns the masked text and the number of replacements.
-// The result is deterministic: findings are applied longest secret first, ties by rule id.
+// Mask scans text with gitleaks' detection library (default config) and replaces its findings'
+// secrets with [REDACTED:<rule-id>]. See MaskWith for how spans are replaced and counted.
 func Mask(text string) (Masked, int, error) { return MaskWith(gitleaksDetector, text) }
 
-// MaskWith is Mask with a given Detector.
+// span is the byte range [start, end) of a secret in the text, and the rule that found it.
+type span struct {
+	start, end int
+	rule       string
+}
+
+// MaskWith scans text with d and replaces every occurrence of every finding's secret. Occurrences
+// that overlap or touch are merged into one span, and each merged span is replaced once by
+// [REDACTED:<rule-id>], the rule of the span's earliest-starting finding (ties by rule id). It returns
+// the masked text and the number of merged spans. A finding whose secret is empty or isn't in the
+// text is an error: the text is never passed on partly unmasked. The result is deterministic and
+// doesn't depend on the order of d's findings.
 func MaskWith(d Detector, text string) (Masked, int, error) {
 	findings, err := d(text)
 	if err != nil {
 		return Masked{}, 0, err
 	}
-	hits := findings[:0:0]
-	seen := map[Finding]bool{}
+	var spans []span
 	for _, f := range findings {
 		if f.Secret == "" || !strings.Contains(text, f.Secret) {
 			return Masked{}, 0, fmt.Errorf("secret scan: rule %s found a secret that is not in the text; refusing to continue unmasked", f.RuleID)
 		}
-		if seen[f] {
-			continue
+		for from := 0; ; {
+			k := strings.Index(text[from:], f.Secret)
+			if k < 0 {
+				break
+			}
+			start := from + k
+			spans = append(spans, span{start, start + len(f.Secret), f.RuleID})
+			from = start + 1 // overlapping occurrences of one secret count too
 		}
-		seen[f] = true
-		hits = append(hits, f)
 	}
-	sort.Slice(hits, func(i, j int) bool {
-		if len(hits[i].Secret) != len(hits[j].Secret) {
-			return len(hits[i].Secret) > len(hits[j].Secret)
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].start != spans[j].start {
+			return spans[i].start < spans[j].start
 		}
-		if hits[i].RuleID != hits[j].RuleID {
-			return hits[i].RuleID < hits[j].RuleID
+		if spans[i].rule != spans[j].rule {
+			return spans[i].rule < spans[j].rule
 		}
-		return hits[i].Secret < hits[j].Secret
+		return spans[i].end > spans[j].end
 	})
 
-	n := 0
-	for _, h := range hits {
-		c := strings.Count(text, h.Secret)
-		if c == 0 {
-			continue // already inside an earlier replacement
+	var out strings.Builder
+	n, last := 0, 0
+	for i := 0; i < len(spans); {
+		cur := spans[i] // the earliest-starting span of the group names it
+		end := cur.end
+		for i++; i < len(spans) && spans[i].start <= end; i++ {
+			end = max(end, spans[i].end)
 		}
-		n += c
-		text = strings.ReplaceAll(text, h.Secret, "[REDACTED:"+h.RuleID+"]")
+		out.WriteString(text[last:cur.start])
+		out.WriteString("[REDACTED:" + cur.rule + "]")
+		last = end
+		n++
 	}
-	return Masked{text: text}, n, nil
+	out.WriteString(text[last:])
+	return Masked{text: out.String()}, n, nil
 }
