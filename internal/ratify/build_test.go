@@ -55,8 +55,7 @@ func isEmpty(t *testing.T, dir string) bool {
 func TestBuild(t *testing.T) {
 	t.Run("fields are set as designed", func(t *testing.T) {
 		in := testInput()
-		in.RootIntent = masked("masked text é\n")
-		in.Redactions = 2
+		in.RootIntent = Masked{text: "masked text é\n", redactions: 2}
 		in.DraftedBy = "claude-code/claude-opus-5-5"
 		// 16:14:03.987 at +07:00 is 09:14:03 UTC once truncated to seconds
 		in.RatifiedAt = time.Date(2026, 11, 18, 16, 14, 3, 987654321, time.FixedZone("ICT", 7*3600))
@@ -117,7 +116,7 @@ func TestBuild(t *testing.T) {
 		"bad method":       func(in *BuildInput) { in.Method = "telepathy" },
 		"bad source":       func(in *BuildInput) { in.Source = "carrier-pigeon" },
 		"no ratifier":      func(in *BuildInput) { in.Ratifier = "" },
-		"negative redacts": func(in *BuildInput) { in.Redactions = -1 },
+		"negative redacts": func(in *BuildInput) { in.RootIntent = Masked{text: "x", redactions: -1} },
 		"negative review":  func(in *BuildInput) { in.ReviewDurationMS = -1 },
 		"bad footprint":    func(in *BuildInput) { in.Criteria[0].Footprint = []string{"src/[a-"} },
 		"zero time":        func(in *BuildInput) { in.RatifiedAt = time.Time{} },
@@ -166,8 +165,7 @@ func TestMaskAndBuild_ScanBeforeWrite(t *testing.T) {
 	t.Run("the scan output is what is hashed and returned, never the raw text", func(t *testing.T) {
 		d := func(string) ([]Finding, error) { return []Finding{{RuleID: "r1", Secret: "secret"}}, nil }
 		in := testInput()
-		in.RootIntent = masked("not scanned") // MaskAndBuild ignores it
-		in.Redactions = 99                    // and the count
+		in.RootIntent = Masked{text: "not scanned", redactions: 99} // MaskAndBuild ignores it and its count
 		l, m, err := MaskAndBuild(d, "raw secret text", in)
 		if err != nil {
 			t.Fatal(err)

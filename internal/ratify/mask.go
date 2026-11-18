@@ -13,10 +13,16 @@ import (
 // Masked is root intent text that has been through the secret scan. Only MaskWith (and so Mask and
 // MaskAndBuild) can make a non-zero one, so Build and Store.Write, which take a Masked, can't be
 // handed unscanned text by construction.
-type Masked struct{ text string }
+type Masked struct {
+	text       string
+	redactions int
+}
 
 // String is the masked text.
 func (m Masked) String() string { return m.text }
+
+// Redactions is the number of secrets masked out of the text.
+func (m Masked) Redactions() int { return m.redactions }
 
 // Finding is one secret a Detector found: the secret as it appears in the text, and the id of the
 // rule that matched it.
@@ -126,5 +132,5 @@ func MaskWith(d Detector, text string) (Masked, int, error) {
 		n++
 	}
 	out.WriteString(text[last:])
-	return Masked{text: out.String()}, n, nil
+	return Masked{text: out.String(), redactions: n}, n, nil
 }
