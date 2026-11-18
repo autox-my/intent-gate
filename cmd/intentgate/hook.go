@@ -161,7 +161,7 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	if err := os.MkdirAll(filepath.Dir(recPath), 0o700); err != nil {
 		return claudecode.Output{}, err
 	}
-	if err := os.WriteFile(recPath, data, 0o600); err != nil {
+	if err := writeFileAtomic(recPath, data); err != nil {
 		return claudecode.Output{}, err
 	}
 	var b strings.Builder
@@ -278,8 +278,37 @@ func readPending(path string) (time.Time, bool) {
 	return t, err == nil
 }
 
-// prunePending deletes pending records older than 24 h by their finished_at (not file mtime), and
-// then every empty session directory. Errors are ignored: pruning must never stop a hook.
+// writeFileAtomic writes data (mode 0600) to a temp file next to path and renames it into place,
+// so a reader never sees a half-written record.
+func writeFileAtomic(path string, data []byte) (err error) {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(f.Name())
+		}
+	}()
+	if err = f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err = f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
+}
+
+// prunePending deletes stale pending records, then every empty session directory. A record is
+// stale when |now − finished_at| > 24 h (so one stamped in the future goes too), judged by
+// finished_at and not by mtime; a record that can't be parsed, and any other leftover file such as
+// an interrupted temp file, is stale once its mtime is older than 24 h. Errors are ignored:
+// pruning must never stop a hook.
 func prunePending(pending string, now time.Time) {
 	sessions, err := os.ReadDir(pending)
 	if err != nil {
@@ -292,11 +321,19 @@ func prunePending(pending string, now time.Time) {
 		dir := filepath.Join(pending, s.Name())
 		recs, _ := os.ReadDir(dir)
 		for _, r := range recs {
-			if r.IsDir() || !strings.HasSuffix(r.Name(), ".json") {
+			if r.IsDir() {
 				continue
 			}
 			path := filepath.Join(dir, r.Name())
-			if t, ok := readPending(path); !ok || now.Sub(t) > pendingTTL {
+			if strings.HasSuffix(r.Name(), ".json") {
+				if t, ok := readPending(path); ok {
+					if d := now.Sub(t); d > pendingTTL || -d > pendingTTL {
+						_ = os.Remove(path)
+					}
+					continue
+				}
+			}
+			if info, err := r.Info(); err == nil && now.Sub(info.ModTime()) > pendingTTL {
 				_ = os.Remove(path)
 			}
 		}

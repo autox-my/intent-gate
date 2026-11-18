@@ -547,3 +547,77 @@ func TestRun_ExitCodes(t *testing.T) {
 		}
 	})
 }
+
+// Review 1 of S-04: the pending record is written temp file + rename, so a reader never sees a
+// half-written record (rename gives the path a new inode; an in-place write would keep it).
+func TestHook_PendingRecordIsWrittenByRename(t *testing.T) {
+	e := newEnv(t, "dev@example.com")
+	e.pre()
+	path := e.pendingFiles()[0]
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.now = t0.Add(time.Second)
+	e.pre()
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, after) {
+		t.Error("the record was rewritten in place, want a new file renamed over it")
+	}
+	if after.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want 0600", after.Mode().Perm())
+	}
+	if got := e.pendingFiles(); len(got) != 1 {
+		t.Errorf("files in pending: %v, want only the record (no temp file left)", got)
+	}
+}
+
+// Review 1 of S-04: prune on |now − finished_at| > 24 h, and an unparseable record only once its
+// mtime is older than 24 h.
+func TestHook_PruneRules(t *testing.T) {
+	e := newEnv(t, "dev@example.com")
+	put := func(use, content string, mtime time.Time) string {
+		dir := filepath.Join(e.state, "pending", "s")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, use+".json")
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	rec := func(at time.Time) string {
+		return `{"finished_at":"` + at.Format(time.RFC3339Nano) + `","plan_sha256":"` + strings.Repeat("a", 64) + `"}`
+	}
+	cases := []struct {
+		name string
+		path string
+		kept bool
+	}{
+		{"23 h old", put("toolu_23h", rec(t0.Add(-23*time.Hour)), t0), true},
+		{"25 h old", put("toolu_25h", rec(t0.Add(-25*time.Hour)), t0), false},
+		{"23 h in the future", put("toolu_f23h", rec(t0.Add(23*time.Hour)), t0), true},
+		{"25 h in the future", put("toolu_f25h", rec(t0.Add(25*time.Hour)), t0), false},
+		{"a year in the future", put("toolu_f365d", rec(t0.Add(365*24*time.Hour)), t0), false},
+		{"unparseable, fresh mtime", put("toolu_bad_fresh", "not json", t0.Add(-time.Hour)), true},
+		{"unparseable, mtime 25 h old", put("toolu_bad_old", "not json", t0.Add(-25*time.Hour)), false},
+		{"bad finished_at, fresh mtime", put("toolu_badtime_fresh", `{"finished_at":"yesterday"}`, t0), true},
+		{"bad finished_at, mtime 25 h old", put("toolu_badtime_old", `{"finished_at":"yesterday"}`, t0.Add(-25*time.Hour)), false},
+	}
+	if code, _ := e.run("pre", e.input("PreToolUse", "# no block\n", "ExitPlanMode")); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, c := range cases {
+		_, err := os.Stat(c.path)
+		if kept := err == nil; kept != c.kept {
+			t.Errorf("%s: kept = %v, want %v", c.name, kept, c.kept)
+		}
+	}
+}
