@@ -26,6 +26,7 @@ func (f fakeReviewer) Review(ctx context.Context, rootIntent, plan string) ([]pl
 var markedFindings = []planreview.Finding{
 	{Kind: planreview.Omission, Quote: "q-" + findingMarker + "-1", Text: "t-" + findingMarker, Confidence: 0.9},
 	{Kind: planreview.Omission, Quote: "q-" + findingMarker + "-2", Text: "t-" + findingMarker, Confidence: 0.8},
+	{Kind: planreview.Addition, Quote: "q-" + findingMarker + "-4", Text: "t-" + findingMarker, Confidence: 0.6},
 	{Kind: planreview.Weakening, Quote: "q-" + findingMarker + "-3", Text: "t-" + findingMarker, Confidence: 0.7},
 }
 
@@ -41,11 +42,11 @@ func TestHook_PlanReviewNeverBlocks(t *testing.T) {
 	}{
 		{"complete with findings", fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) {
 			return markedFindings, nil
-		}), "complete", [3]int{2, 0, 1}},
+		}), "complete", [3]int{2, 1, 1}},
 		{"partial", fakeReviewer(func(ctx context.Context, _, _ string) ([]planreview.Finding, error) {
 			<-ctx.Done()
-			return markedFindings[:2], ctx.Err()
-		}), "partial", [3]int{2, 0, 0}},
+			return markedFindings[:3], ctx.Err()
+		}), "partial", [3]int{2, 1, 0}},
 		{"hang past the budget", fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) {
 			time.Sleep(3 * time.Second) // ignores its context
 			return markedFindings, nil
@@ -195,8 +196,8 @@ func TestLock_PlanReviewShownBeforePrompt(t *testing.T) {
 		t.Fatalf("lock invalid: %v", ps)
 	}
 	pr := l.PlanReview
-	if pr == nil || pr.Status != "complete" || *pr.Omissions != 2 || *pr.Additions != 0 || *pr.Weakenings != 1 {
-		t.Errorf("plan_review = %+v, want complete 2/0/1", pr)
+	if pr == nil || pr.Status != "complete" || *pr.Omissions != 2 || *pr.Additions != 1 || *pr.Weakenings != 1 {
+		t.Errorf("plan_review = %+v, want complete 2/1/1", pr)
 	}
 	if ms := l.Ratification.ReviewDurationMS; ms == nil || *ms != int(confirmDelay.Milliseconds()) {
 		t.Errorf("review_duration_ms = %v, want the time from the prompt to the answer (%d)", ms, confirmDelay.Milliseconds())
@@ -208,35 +209,86 @@ func TestLock_PlanReviewShownBeforePrompt(t *testing.T) {
 }
 
 func TestLock_PlanReviewDoesNotBlock(t *testing.T) {
-	for name, r := range map[string]planreview.Reviewer{
-		"hang": fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) {
-			time.Sleep(3 * time.Second)
-			return markedFindings, nil
-		}),
-		"panic": fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) { panic("x") }),
-		"nil":   nil,
-	} {
-		t.Run(name, func(t *testing.T) {
-			e := newEnv(t, "dev@example.com")
-			e.terminals(true, true)
+	// start makes the environment and the command line for one way of locking.
+	type start func(t *testing.T) (*env, []string)
+	fromPlan := func(t *testing.T) (*env, []string) {
+		e := newEnv(t, "dev@example.com")
+		e.terminals(true, true)
+		return e, []string{"lock", "--from-plan", e.write("plan.md", planText), "--prompt", e.write("prompt.txt", rootIntent)}
+	}
+	fromIssue := func(t *testing.T) (*env, []string) {
+		e, _ := issueEnv(t)
+		return e, []string{"lock", "--issue", "7"}
+	}
+	for _, how := range []struct {
+		name string
+		start
+	}{{"--from-plan", fromPlan}, {"--issue", fromIssue}} {
+		for name, c := range map[string]struct {
+			r          planreview.Reviewer
+			wantStatus string
+		}{
+			"hang": {fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) {
+				time.Sleep(3 * time.Second)
+				return markedFindings, nil
+			}), "unavailable"},
+			"panic": {fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) { panic("x") }), "error"},
+			"nil":   {nil, "unavailable"},
+		} {
+			t.Run(how.name+"/"+name, func(t *testing.T) {
+				e, args := how.start(t)
+				e.deps.PlanReviewBudget = testBudget
+				e.deps.PlanReviewer = c.r
+				begin := time.Now()
+				code, stdout, stderr := e.do(args, "yes\n")
+				if code != 0 || time.Since(begin) > testBudget+time.Second {
+					t.Fatalf("exit %d after %v, stderr %q, stdout %q", code, time.Since(begin), stderr, stdout)
+				}
+				l, _ := e.onlyLock()
+				if l.PlanReview == nil || l.PlanReview.Status != c.wantStatus {
+					t.Errorf("plan_review = %+v, want status %s", l.PlanReview, c.wantStatus)
+				}
+			})
+		}
+		t.Run(how.name+"/findings of each kind", func(t *testing.T) {
+			e, args := how.start(t)
 			e.deps.PlanReviewBudget = testBudget
-			e.deps.PlanReviewer = r
-			plan := e.write("plan.md", planText)
-			prompt := e.write("prompt.txt", rootIntent)
-			start := time.Now()
-			code, stdout, stderr := e.do([]string{"lock", "--from-plan", plan, "--prompt", prompt}, "yes\n")
-			if code != 0 || time.Since(start) > testBudget+time.Second {
-				t.Fatalf("exit %d after %v, stderr %q, stdout %q", code, time.Since(start), stderr, stdout)
+			e.deps.PlanReviewer = fakeReviewer(func(context.Context, string, string) ([]planreview.Finding, error) { return markedFindings, nil })
+			code, stdout, stderr := e.do(args, "yes\n")
+			if code != 0 {
+				t.Fatalf("exit %d, stderr %q, stdout %q", code, stderr, stdout)
 			}
-			l, _ := e.onlyLock()
-			want := "unavailable"
-			if name == "panic" {
-				want = "error"
+			l, path := e.onlyLock()
+			pr := l.PlanReview
+			if pr == nil || pr.Status != "complete" || *pr.Omissions != 2 || *pr.Additions != 1 || *pr.Weakenings != 1 {
+				t.Errorf("plan_review = %+v, want complete 2/1/1", pr)
 			}
-			if l.PlanReview == nil || l.PlanReview.Status != want {
-				t.Errorf("plan_review = %+v, want status %s", l.PlanReview, want)
-			}
+			assertNoFindingText(t, e, path)
 		})
+	}
+}
+
+// `lock --issue` has no plan file: what the review weighs against the issue is the criterion
+// texts, one per line, without footprints (review 1 of S-11).
+func TestLock_IssuePlanForReviewIsCriterionTexts(t *testing.T) {
+	e, _ := issueEnv(t)
+	var gotPlan string
+	e.deps.PlanReviewer = fakeReviewer(func(_ context.Context, _, plan string) ([]planreview.Finding, error) {
+		gotPlan = plan
+		return nil, nil
+	})
+	if code, out, errOut := e.do([]string{"lock", "--issue", "7"}, "yes\n"); code != 0 {
+		t.Fatalf("exit %d: %s %s", code, out, errOut)
+	}
+	want := []string{"Findings are published as SARIF", "The report package has tests"}
+	got := strings.Split(strings.TrimRight(gotPlan, "\n"), "\n")
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("the plan given to the review is %q, want the criterion texts one per line: %q", gotPlan, want)
+	}
+	for _, leak := range []string{"footprint", "internal/report", "C1", "C2"} {
+		if strings.Contains(gotPlan, leak) {
+			t.Errorf("the plan given to the review holds %q: %q", leak, gotPlan)
+		}
 	}
 }
 
@@ -311,7 +363,7 @@ func TestAmend_KeepsPlanReview(t *testing.T) {
 			t.Fatalf("%v: %d %s %s", args, code, out, errOut)
 		}
 		after, _ := e.onlyLock()
-		if after.PlanReview == nil || *after.PlanReview.Omissions != 2 || after.PlanReview.Status != "complete" {
+		if pr := after.PlanReview; pr == nil || pr.Status != "complete" || *pr.Omissions != 2 || *pr.Additions != 1 || *pr.Weakenings != 1 {
 			t.Errorf("%v: plan_review = %+v, want it unchanged", args, after.PlanReview)
 		}
 		if !lock.VerifyHash(after) {

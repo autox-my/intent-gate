@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // fake is a Reviewer made of a function.
@@ -193,5 +194,44 @@ func TestSelect(t *testing.T) {
 		if _, err := r.Review(context.Background(), "a", "b"); !errors.Is(err, ErrUnavailable) {
 			t.Errorf("INTENTGATE_PLAN_REVIEW=%q: Review err = %v, want ErrUnavailable in this slice", v, err)
 		}
+	}
+}
+
+// A provider's error text is untrusted and may be long or span lines: the status line shows at
+// most 200 bytes of it, on one line, cut on a UTF-8 boundary (review 1 of S-11).
+func TestDisplay_ErrorLineIsBounded(t *testing.T) {
+	const prefix = "Plan review: error: "
+	for name, errText := range map[string]string{
+		"long ascii":   strings.Repeat("x", 5000),
+		"long unicode": strings.Repeat("é", 400),       // 2 bytes each: the cut at 200 bytes is on a boundary
+		"cut mid-rune": "a" + strings.Repeat("€", 200), // 3 bytes each: byte 200 falls inside a rune
+		"many lines":   "first line\nsecond line\r\nthird line",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := Display(Result{Status: ErrorStatus, Err: errText})
+			line, rest, _ := strings.Cut(out, "\n")
+			if rest != "" {
+				t.Errorf("the status line is followed by more text:\n%q", out)
+			}
+			if !strings.HasPrefix(line, prefix) {
+				t.Fatalf("status line %q lacks the prefix", line)
+			}
+			shown := strings.TrimPrefix(line, prefix)
+			if len(shown) > 200 {
+				t.Errorf("the error text is %d bytes, want at most 200", len(shown))
+			}
+			if !utf8.ValidString(shown) {
+				t.Errorf("the error text is cut inside a rune: %q", shown)
+			}
+			if strings.ContainsAny(shown, "\r\n") {
+				t.Errorf("the error text spans lines: %q", shown)
+			}
+			if len(shown) == 0 {
+				t.Errorf("the error text is gone")
+			}
+		})
+	}
+	if out := Display(Result{Status: ErrorStatus, Err: "provider said no"}); out != "Plan review: error: provider said no\n" {
+		t.Errorf("a short error is changed: %q", out)
 	}
 }
