@@ -13,3 +13,4 @@ rationale:
 relations: []
 tests:
   - "intentgate/internal/lock::TestParse_RejectsUnknownKeys"
+  - "intentgate/internal/lock::TestParse_RejectsUnknownAmendmentKeys"

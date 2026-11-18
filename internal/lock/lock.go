@@ -78,8 +78,17 @@ type Ratification struct {
 	DraftedBy        *string `yaml:"drafted_by,omitempty" json:"drafted_by,omitempty"`
 }
 
-// Amendment is one entry of amendments: (intent-lock.md §2). STUB (red at the base): typed, but
-// not yet validated and not yet strict about unknown keys.
+// Amendment kinds.
+const (
+	KindAddGlob  = "add-glob"
+	KindReratify = "reratify"
+)
+
+var kinds = []string{KindAddGlob, KindReratify}
+
+// Amendment is one entry of amendments: (intent-lock.md §2). It has no field for text, and Parse
+// rejects unknown keys, so root intent text can't ride in it (REQ-0014). Criterion and Glob are
+// set for add-glob only; At is RFC 3339 in UTC.
 type Amendment struct {
 	Revision  int    `yaml:"revision" json:"revision"`
 	Kind      string `yaml:"kind" json:"kind"`
@@ -88,12 +97,6 @@ type Amendment struct {
 	By        string `yaml:"by" json:"by"`
 	At        string `yaml:"at" json:"at"`
 	Method    string `yaml:"method" json:"method"`
-}
-
-// UnmarshalYAML is lenient on purpose in the red stub: Node.Decode does not inherit KnownFields.
-func (a *Amendment) UnmarshalYAML(n *yaml.Node) error {
-	type plain Amendment
-	return n.Decode((*plain)(a))
 }
 
 // Problem is one validation finding. Path is a dotted path such as criteria[0].footprint[1].
@@ -207,6 +210,8 @@ func Validate(l Lock) []Problem {
 		add("ratification.review_duration_ms", "must be an integer of at least 0, got %d", *r.ReviewDurationMS)
 	}
 
+	validateAmendments(l, add)
+
 	sort.SliceStable(ps, func(i, j int) bool {
 		if ps[i].Path != ps[j].Path {
 			return ps[i].Path < ps[j].Path
@@ -215,6 +220,84 @@ func Validate(l Lock) []Problem {
 	})
 	return ps
 }
+
+// validateAmendments checks the amendment history: revisions are 2, 3, … in order and end at the
+// lock's revision, and each entry is well formed against the lock's criteria.
+func validateAmendments(l Lock, add func(path, format string, args ...any)) {
+	if want := len(l.Amendments) + 1; l.Revision >= 1 && l.Revision != want {
+		add("revision", "must be %d (1 + the %d amendments), got %d", want, len(l.Amendments), l.Revision)
+	}
+	for i, a := range l.Amendments {
+		base := fmt.Sprintf("amendments[%d]", i)
+		if want := i + 2; a.Revision != want {
+			add(base+".revision", "must be %d, got %d", want, a.Revision)
+		}
+		if strings.TrimSpace(a.By) == "" {
+			add(base+".by", "is required")
+		}
+		if _, err := parseUTC(a.At); err != nil {
+			add(base+".at", "%v", err)
+		}
+		if !contains(methods, a.Method) {
+			add(base+".method", "must be one of %s, got %q", strings.Join(methods, ", "), a.Method)
+		}
+		switch a.Kind {
+		case KindAddGlob:
+			validateAddGlob(l, a, base, add)
+		case KindReratify:
+			if a.Criterion != "" {
+				add(base+".criterion", "is only for add-glob, got %q", a.Criterion)
+			}
+			if a.Glob != "" {
+				add(base+".glob", "is only for add-glob, got %q", a.Glob)
+			}
+		default:
+			add(base+".kind", "must be one of %s, got %q", strings.Join(kinds, ", "), a.Kind)
+		}
+	}
+}
+
+func validateAddGlob(l Lock, a Amendment, base string, add func(path, format string, args ...any)) {
+	var crit *Criterion
+	switch {
+	case a.Criterion == "":
+		add(base+".criterion", "is required for add-glob")
+	default:
+		for i := range l.Criteria {
+			if l.Criteria[i].ID == a.Criterion {
+				crit = &l.Criteria[i]
+			}
+		}
+		if crit == nil {
+			add(base+".criterion", "no criterion %q in this lock", a.Criterion)
+		}
+	}
+	if a.Glob == "" {
+		add(base+".glob", "is required for add-glob")
+		return
+	}
+	if err := CheckGlob(a.Glob); err != nil {
+		add(base+".glob", "%v", err)
+	} else if crit != nil && !contains(crit.Footprint, a.Glob) {
+		add(base+".glob", "%q is not in the footprint of %s", a.Glob, crit.ID)
+	}
+}
+
+// CheckGlob applies the footprint rules to one glob: a leading ! excludes, and what follows must
+// be a non-empty pattern that parses.
+func CheckGlob(g string) error {
+	pat := strings.TrimPrefix(g, "!")
+	if pat == "" {
+		return fmt.Errorf("glob %q is empty", g)
+	}
+	if !doublestar.ValidatePattern(pat) {
+		return fmt.Errorf("glob %q does not parse", g)
+	}
+	return nil
+}
+
+// ValidID reports whether s is a well-formed lock id (a 26-character Crockford base32 ULID).
+func ValidID(s string) bool { return ulidRE.MatchString(s) }
 
 // Hash returns "sha256:" + hex of the canonical JSON (RFC 8785 subset) of the lock with its hash
 // field removed (REQ-0013). Absent and empty lists hash the same; a scalar key present with a

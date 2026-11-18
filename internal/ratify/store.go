@@ -121,7 +121,86 @@ func createExclusive(path string, data []byte, mode os.FileMode) (err error) {
 	return nil
 }
 
-// Amend replaces the committed lock for old.ID with next. STUB (red at the base).
+// Amend replaces the committed lock <RepoRoot>/.intent/<id>.yml with next, which is old amended
+// (ratification.md §3, footprint-check.md §5). It refuses, changing nothing, unless: next has old's
+// id and root_intent, next.Revision is old.Revision+1, the file on disk still parses, verifies and
+// hashes to old.Hash (nobody changed the lock since old was read), and next validates and verifies.
+// The new file is written to a temp file next to it and renamed over it, so a reader sees the old
+// lock or the new one. The root intent record under StateDir is never touched.
 func (s Store) Amend(old, next lock.Lock) error {
-	return errors.New("ratify: Amend is not implemented")
+	if next.ID != old.ID {
+		return fmt.Errorf("ratify: refusing to amend: the id changed from %s to %s", old.ID, next.ID)
+	}
+	if !sameRootIntent(old.RootIntent, next.RootIntent) {
+		return errors.New("ratify: refusing to amend: root_intent changed")
+	}
+	if next.Revision != old.Revision+1 {
+		return fmt.Errorf("ratify: refusing to amend: revision must be %d, got %d", old.Revision+1, next.Revision)
+	}
+	if ps := lock.Validate(next); len(ps) > 0 {
+		return fmt.Errorf("ratify: refusing to write an invalid lock: %s", ps[0])
+	}
+	if !lock.VerifyHash(next) {
+		return errors.New("ratify: refusing to write a lock whose hash does not verify")
+	}
+	if !lock.ValidID(old.ID) { // the id is a file name
+		return fmt.Errorf("ratify: %q is not a lock id", old.ID)
+	}
+
+	path := filepath.Join(s.RepoRoot, ".intent", old.ID+".yml")
+	disk, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("ratify: %w", err)
+	}
+	onDisk, err := lock.Parse(disk)
+	if err != nil {
+		return fmt.Errorf("ratify: refusing to amend: %s: %w", path, err)
+	}
+	if old.Hash == "" || onDisk.Hash != old.Hash || !lock.VerifyHash(onDisk) {
+		return fmt.Errorf("ratify: refusing to amend: %s is not the lock that was read (its hash changed or does not verify)", path)
+	}
+	data, err := lock.Marshal(next)
+	if err != nil {
+		return err
+	}
+	return replaceAtomic(path, data, 0o644)
+}
+
+func sameRootIntent(a, b lock.RootIntent) bool {
+	if a.SHA256 != b.SHA256 || a.Source != b.Source || (a.Redactions == nil) != (b.Redactions == nil) {
+		return false
+	}
+	return a.Redactions == nil || *a.Redactions == *b.Redactions
+}
+
+// replaceAtomic writes data to a temp file in path's directory and renames it over path.
+func replaceAtomic(path string, data []byte, mode os.FileMode) (err error) {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("ratify: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err = tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err = tmp.Close(); err != nil {
+		return fmt.Errorf("ratify: %w", err)
+	}
+	if err = os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("ratify: %w", err)
+	}
+	return nil
 }

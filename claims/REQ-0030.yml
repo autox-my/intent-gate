@@ -13,3 +13,4 @@ rationale:
 relations: []
 tests:
   - "intentgate/internal/footprint::TestFinding_FixCommand"
+  - "intentgate/cmd/intentgate::TestAmend_AddGlob"

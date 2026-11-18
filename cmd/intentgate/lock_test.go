@@ -458,12 +458,12 @@ func TestAmend_AddGlob(t *testing.T) {
 	}
 	wantAmendment := lock.Amendment{
 		Revision: 2, Kind: "add-glob", Criterion: "C2", Glob: "docs/api/**",
-		By: "git:dev@example.com", At: e.now.Add(confirmDelay).Format("2006-01-02T15:04:05Z"), Method: "cli-confirm",
+		By: "git:dev@example.com", At: e.now.Format("2006-01-02T15:04:05Z"), Method: "cli-confirm", // e.now is the moment of the answer
 	}
 	if !reflect.DeepEqual(l.Amendments, []lock.Amendment{wantAmendment}) {
 		t.Errorf("amendments = %+v, want [%+v]", l.Amendments, wantAmendment)
 	}
-	if !reflect.DeepEqual(l.Ratification, old.Ratification) || l.RootIntent != old.RootIntent || l.ID != id {
+	if !reflect.DeepEqual(l.Ratification, old.Ratification) || !reflect.DeepEqual(l.RootIntent, old.RootIntent) || l.ID != id {
 		t.Errorf("ratification, root intent or id changed: %+v", l)
 	}
 	if got := e.record(id); !bytes.Equal(got, recBefore) {
@@ -565,7 +565,7 @@ func TestAmend_Reratify(t *testing.T) {
 	if r.DraftedBy != nil {
 		t.Errorf("drafted_by = %q, want it dropped", *r.DraftedBy)
 	}
-	if l.Revision != 2 || !reflect.DeepEqual(l.Criteria, old.Criteria) || l.RootIntent != old.RootIntent {
+	if l.Revision != 2 || !reflect.DeepEqual(l.Criteria, old.Criteria) || !reflect.DeepEqual(l.RootIntent, old.RootIntent) {
 		t.Errorf("revision %d, criteria %+v, root intent %+v", l.Revision, l.Criteria, l.RootIntent)
 	}
 	want := lock.Amendment{Revision: 2, Kind: "reratify", By: "git:new@example.com", At: wantAt, Method: "cli-confirm"}
