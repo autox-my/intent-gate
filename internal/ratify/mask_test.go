@@ -18,10 +18,10 @@ func TestMask_RedactsSecrets(t *testing.T) {
 			t.Fatalf("Mask: %v", err)
 		}
 		want := "Add a deploy step.\nuse token [REDACTED:github-pat] for the push\n"
-		if got != want || n != 1 {
+		if got.String() != want || n != 1 {
 			t.Fatalf("got (%q, %d), want (%q, 1)", got, n, want)
 		}
-		if strings.Contains(got, fakeToken) {
+		if strings.Contains(got.String(), fakeToken) {
 			t.Fatal("the secret survived masking")
 		}
 	})
@@ -31,14 +31,14 @@ func TestMask_RedactsSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Mask: %v", err)
 		}
-		if n != 3 || strings.Contains(got, "ghp_") || strings.Count(got, "[REDACTED:github-pat]") != 3 {
+		if n != 3 || strings.Contains(got.String(), "ghp_") || strings.Count(got.String(), "[REDACTED:github-pat]") != 3 {
 			t.Fatalf("got (%q, %d), want three redactions", got, n)
 		}
 	})
 	t.Run("clean text is unchanged with 0", func(t *testing.T) {
 		in := "Add SARIF output.\n\nNon-ASCII é 日本 and a trailing blank line.\n\n"
 		got, n, err := Mask(in)
-		if err != nil || got != in || n != 0 {
+		if err != nil || got.String() != in || n != 0 {
 			t.Fatalf("got (%q, %d, %v), want the input unchanged and 0", got, n, err)
 		}
 	})
@@ -52,7 +52,7 @@ func TestMask_RedactsSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a != b || na != nb || na == 0 {
+		if a.String() != b.String() || na != nb || na == 0 {
 			t.Fatalf("first (%q, %d), second (%q, %d)", a, na, b, nb)
 		}
 	})

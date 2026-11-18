@@ -24,14 +24,14 @@ type Store struct {
 // and then the lock <RepoRoot>/.intent/<id>.yml, each by temp file and rename in its own directory.
 // It refuses, writing nothing, when the lock is invalid or its hash doesn't verify, when the SHA-256
 // of maskedRootIntent isn't l.RootIntent.SHA256, or when a lock with this id already exists.
-func (s Store) Write(l lock.Lock, maskedRootIntent string) error {
+func (s Store) Write(l lock.Lock, maskedRootIntent Masked) error {
 	if ps := lock.Validate(l); len(ps) > 0 {
 		return fmt.Errorf("ratify: refusing to write an invalid lock: %s", ps[0])
 	}
 	if !lock.VerifyHash(l) {
 		return errors.New("ratify: refusing to write a lock whose hash does not verify")
 	}
-	sum := sha256.Sum256([]byte(maskedRootIntent))
+	sum := sha256.Sum256([]byte(maskedRootIntent.text))
 	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(sum[:])), []byte(l.RootIntent.SHA256)) != 1 {
 		return errors.New("ratify: refusing to write: the root intent text does not match root_intent.sha256")
 	}
@@ -52,7 +52,7 @@ func (s Store) Write(l lock.Lock, maskedRootIntent string) error {
 	if err := os.MkdirAll(recDir, 0o700); err != nil {
 		return fmt.Errorf("ratify: %w", err)
 	}
-	if err := writeFile(filepath.Join(recDir, "root-intent.md"), []byte(maskedRootIntent), 0o600, true); err != nil {
+	if err := writeFile(filepath.Join(recDir, "root-intent.md"), []byte(maskedRootIntent.text), 0o600, true); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {

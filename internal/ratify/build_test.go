@@ -16,6 +16,9 @@ import (
 
 const testID = "01JD8Z6Q4M7R2T9X3B5N8K1C6F"
 
+// masked makes a Masked for tests in this package, which may (production code may not).
+func masked(s string) Masked { return Masked{text: s} }
+
 func sha(s string) string { sum := sha256.Sum256([]byte(s)); return hex.EncodeToString(sum[:]) }
 
 func testInput() BuildInput {
@@ -23,7 +26,7 @@ func testInput() BuildInput {
 		ID:               testID,
 		BaseRef:          "main",
 		Source:           "claude-code-session",
-		RootIntent:       "Add SARIF output to the report package.\n",
+		RootIntent:       masked("Add SARIF output to the report package.\n"),
 		Criteria:         []lock.Criterion{{ID: "C1", Text: "Findings are published as SARIF.", Footprint: []string{"internal/report/**"}}},
 		Ratifier:         "git:dev@example.com",
 		RatifiedAt:       time.Date(2026, 11, 18, 9, 14, 3, 0, time.UTC),
@@ -52,7 +55,7 @@ func isEmpty(t *testing.T, dir string) bool {
 func TestBuild(t *testing.T) {
 	t.Run("fields are set as designed", func(t *testing.T) {
 		in := testInput()
-		in.RootIntent = "masked text é\n"
+		in.RootIntent = masked("masked text é\n")
 		in.Redactions = 2
 		in.DraftedBy = "claude-code/claude-opus-5-5"
 		// 16:14:03.987 at +07:00 is 09:14:03 UTC once truncated to seconds
@@ -135,51 +138,60 @@ func TestBuild(t *testing.T) {
 
 // REQ-0015
 func TestMaskAndBuild_ScanBeforeWrite(t *testing.T) {
-	t.Run("a scanner failure returns nothing and a store stays empty", func(t *testing.T) {
+	t.Run("a scanner failure yields no Masked value and no lock, and a store stays empty", func(t *testing.T) {
 		repo, state := emptyDirs(t)
 		boom := errors.New("scanner exploded")
-		scan := func(string) (string, int, error) { return "", 0, boom }
-		l, masked, err := MaskAndBuild(scan, testInput())
+		failing := func(string) ([]Finding, error) { return nil, boom }
+
+		m, n, err := MaskWith(failing, "some intent with "+fakeToken)
+		if !errors.Is(err, boom) || m != (Masked{}) || n != 0 {
+			t.Fatalf("MaskWith = (%+v, %d, %v), want the zero Masked and the scanner's error", m, n, err)
+		}
+		l, masked, err := MaskAndBuild(failing, "some intent with "+fakeToken, testInput())
 		if !errors.Is(err, boom) {
 			t.Fatalf("error = %v, want it to wrap the scanner's", err)
 		}
-		if !reflect.DeepEqual(l, lock.Lock{}) || masked != "" {
-			t.Fatalf("nothing may be returned, got %+v and %q", l, masked)
+		if !reflect.DeepEqual(l, lock.Lock{}) || masked != (Masked{}) {
+			t.Fatalf("nothing may be returned, got %+v and %+v", l, masked)
+		}
+		// Whatever the caller does next, the only Masked it holds is the zero one, whose hash is not
+		// the lock's: the store refuses it and stays empty.
+		if err := (Store{RepoRoot: repo, StateDir: state}).Write(builtLock(t, "intent\n"), masked); err == nil {
+			t.Fatal("the store accepted a Masked that no scan produced")
 		}
 		if !isEmpty(t, repo) || !isEmpty(t, state) {
 			t.Fatal("the store was touched")
 		}
 	})
-	t.Run("the scanner output is what is hashed and returned, never the raw text", func(t *testing.T) {
-		scan := func(s string) (string, int, error) { return "MASKED:" + strings.ToUpper(s[:3]), 3, nil }
+	t.Run("the scan output is what is hashed and returned, never the raw text", func(t *testing.T) {
+		d := func(string) ([]Finding, error) { return []Finding{{RuleID: "r1", Secret: "secret"}}, nil }
 		in := testInput()
-		in.RootIntent = "raw secret text"
-		in.Redactions = 99 // MaskAndBuild owns the count
-		l, masked, err := MaskAndBuild(scan, in)
+		in.RootIntent = masked("not scanned") // MaskAndBuild ignores it
+		in.Redactions = 99                    // and the count
+		l, m, err := MaskAndBuild(d, "raw secret text", in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if masked != "MASKED:RAW" || l.RootIntent.SHA256 != sha("MASKED:RAW") || l.RootIntent.Redactions == nil || *l.RootIntent.Redactions != 3 {
-			t.Fatalf("got %q and %+v", masked, l.RootIntent)
+		const want = "raw [REDACTED:r1] text"
+		if m.String() != want || l.RootIntent.SHA256 != sha(want) || l.RootIntent.Redactions == nil || *l.RootIntent.Redactions != 1 {
+			t.Fatalf("got %q and %+v", m, l.RootIntent)
 		}
 	})
 	t.Run("with real secrets the stored text and the hashed bytes are the masked text", func(t *testing.T) {
 		repo, state := emptyDirs(t)
-		in := testInput()
-		in.RootIntent = "Ship it. Token " + fakeToken + " goes in CI.\n"
-		l, masked, err := MaskAndBuild(nil, in) // nil scanner = Mask
+		l, m, err := MaskAndBuild(nil, "Ship it. Token "+fakeToken+" goes in CI.\n", testInput()) // nil = gitleaks
 		if err != nil {
 			t.Fatal(err)
 		}
 		const want = "Ship it. Token [REDACTED:github-pat] goes in CI.\n"
-		if masked != want {
-			t.Fatalf("masked = %q, want %q", masked, want)
+		if m.String() != want {
+			t.Fatalf("masked = %q, want %q", m, want)
 		}
 		if l.RootIntent.SHA256 != sha(want) || l.RootIntent.Redactions == nil || *l.RootIntent.Redactions != 1 {
 			t.Fatalf("root_intent = %+v", l.RootIntent)
 		}
 		s := Store{RepoRoot: repo, StateDir: state}
-		if err := s.Write(l, masked); err != nil {
+		if err := s.Write(l, m); err != nil {
 			t.Fatal(err)
 		}
 		rec, err := os.ReadFile(filepath.Join(state, "locks", testID, "root-intent.md"))

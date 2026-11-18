@@ -13,7 +13,7 @@ import (
 func builtLock(t *testing.T, text string) lock.Lock {
 	t.Helper()
 	in := testInput()
-	in.RootIntent = text
+	in.RootIntent = masked(text)
 	l, err := Build(in)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -27,7 +27,7 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 	t.Run("the record's bytes are the masked text and its SHA-256 is the lock's", func(t *testing.T) {
 		repo, state := emptyDirs(t)
 		l := builtLock(t, text)
-		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, text); err != nil {
+		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, masked(text)); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
 		recPath := filepath.Join(state, "locks", testID, "root-intent.md")
@@ -70,7 +70,7 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 		repo, state := emptyDirs(t)
 		l := builtLock(t, text)
 		for _, bad := range []string{text + "x", strings.TrimSuffix(text, "\n"), ""} {
-			if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, bad); err == nil {
+			if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, masked(bad)); err == nil {
 				t.Fatalf("Write accepted a text of %d bytes that does not match the lock", len(bad))
 			}
 		}
@@ -82,12 +82,12 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 		repo, state := emptyDirs(t)
 		l := builtLock(t, text)
 		l.BaseRef = "other" // hash no longer matches
-		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, text); err == nil {
+		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, masked(text)); err == nil {
 			t.Fatal("Write accepted a lock whose hash does not verify")
 		}
 		l = builtLock(t, text)
 		l.ID = "../../escape"
-		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, text); err == nil {
+		if err := (Store{RepoRoot: repo, StateDir: state}).Write(l, masked(text)); err == nil {
 			t.Fatal("Write accepted a lock id that is not a ULID")
 		}
 		if !isEmpty(t, repo) || !isEmpty(t, state) {
@@ -98,7 +98,7 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 		repo, state := emptyDirs(t)
 		s := Store{RepoRoot: repo, StateDir: state}
 		first := builtLock(t, text)
-		if err := s.Write(first, text); err != nil {
+		if err := s.Write(first, masked(text)); err != nil {
 			t.Fatal(err)
 		}
 		lockPath := filepath.Join(repo, ".intent", testID+".yml")
@@ -106,10 +106,10 @@ func TestStore_RootIntentVerbatim(t *testing.T) {
 		beforeLock, _ := os.ReadFile(lockPath)
 
 		second := builtLock(t, "different intent\n") // same id
-		if err := s.Write(second, "different intent\n"); err == nil {
+		if err := s.Write(second, masked("different intent\n")); err == nil {
 			t.Fatal("Write overwrote an existing lock id")
 		}
-		if err := s.Write(first, text); err == nil {
+		if err := s.Write(first, masked(text)); err == nil {
 			t.Fatal("Write accepted the same lock twice")
 		}
 		afterLock, _ := os.ReadFile(lockPath)
