@@ -4,6 +4,7 @@
 package verify
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"time"
@@ -102,15 +103,20 @@ func Run(in Input) Result {
 		return Result{Outcome: Skipped, Problems: []string{}, Locks: []LockResult{}, Findings: []footprint.Finding{}}
 	}
 
-	// 3. discovery: added files are this PR's locks, modified or renamed ones are existing locks
-	// being changed, deleted ones are ignored
+	// 3. the input itself must be sound: one entry per lock file path
+	if problems := inputProblems(in); len(problems) > 0 {
+		return Result{Outcome: Unverifiable, ExitCode: 3, Problems: problems, Locks: []LockResult{}, Findings: []footprint.Finding{}}
+	}
+
+	// discovery: added files are this PR's locks, modified or renamed ones are existing locks
+	// being changed, deleted ones are ignored, any other status is not understood
 	files := make([]LockFile, 0, len(in.LockFiles))
 	for _, f := range in.LockFiles {
 		if f.Status != footprint.Deleted {
 			files = append(files, f)
 		}
 	}
-	sort.SliceStable(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sort.SliceStable(files, func(i, j int) bool { return lockFileLess(files[i], files[j]) })
 	if len(files) == 0 {
 		return Result{Outcome: NoLock, Problems: []string{}, Locks: []LockResult{}, Findings: []footprint.Finding{}}
 	}
@@ -165,6 +171,16 @@ func Run(in Input) Result {
 // the lock is unverifiable; it then contributes no criteria.
 func checkLock(in Input, f LockFile) (LockResult, lock.Lock, bool) {
 	lr := LockResult{Path: f.Path, Suspect: []string{}, Problems: []string{}, Criteria: []Criterion{}}
+	switch f.Status {
+	case footprint.Added, footprint.Modified, footprint.Renamed:
+	default:
+		shown := string(f.Status)
+		if shown == "" {
+			shown = `""`
+		}
+		lr.Problems = []string{"unsupported change status " + shown}
+		return lr, lock.Lock{}, false
+	}
 	l, err := lock.Parse(f.Data)
 	if err != nil {
 		lr.Problems = []string{err.Error()}
@@ -200,6 +216,45 @@ func checkLock(in Input, f LockFile) (LockResult, lock.Lock, bool) {
 		lr.Criteria = append(lr.Criteria, Criterion{ID: c.ID, Text: c.Text, Footprint: fp})
 	}
 	return lr, l, true
+}
+
+// inputProblems lists what is wrong with the input as a whole, sorted: two lock file entries for
+// one path.
+func inputProblems(in Input) []string {
+	seen := make(map[string]bool, len(in.LockFiles))
+	var problems []string
+	for _, f := range in.LockFiles {
+		if seen[f.Path] {
+			problems = append(problems, "duplicate lock file entry "+f.Path)
+		}
+		seen[f.Path] = true
+	}
+	sort.Strings(problems)
+	return dedupe(problems)
+}
+
+// dedupe drops repeats from a sorted list.
+func dedupe(ss []string) []string {
+	out := ss[:0]
+	for i, s := range ss {
+		if i == 0 || s != ss[i-1] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// lockFileLess is a total order over lock files: every field breaks a tie.
+func lockFileLess(a, b LockFile) bool {
+	switch {
+	case a.Path != b.Path:
+		return a.Path < b.Path
+	case a.Status != b.Status:
+		return a.Status < b.Status
+	case a.OldPath != b.OldPath:
+		return a.OldPath < b.OldPath
+	}
+	return bytes.Compare(a.Data, b.Data) < 0
 }
 
 func contains(set []string, s string) bool {
