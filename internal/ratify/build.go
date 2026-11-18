@@ -24,7 +24,8 @@ type BuildInput struct {
 	RatifiedAt       time.Time // converted to UTC and truncated to seconds
 	Method           string    // hook | cli-confirm | issue
 	ReviewDurationMS int
-	DraftedBy        string // optional: "" leaves drafted_by out
+	DraftedBy        string           // optional: "" leaves drafted_by out
+	PlanReview       *lock.PlanReview // optional: nil leaves plan_review out
 }
 
 // Build makes revision 1 of a lock: empty amendments, root_intent.sha256 the SHA-256 of the

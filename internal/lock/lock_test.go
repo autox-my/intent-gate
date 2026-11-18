@@ -727,3 +727,140 @@ func TestSchema_Amendments(t *testing.T) {
 		t.Errorf("schema: amendment kind enum = %s", got)
 	}
 }
+
+// ---- S-11: plan_review ----
+
+func withPlanReview(status string, o, a, w *int) Lock {
+	l := validLock()
+	l.PlanReview = &PlanReview{Status: status, Omissions: o, Additions: a, Weakenings: w}
+	return l
+}
+
+func TestLock_PlanReviewSchema(t *testing.T) {
+	t.Run("a complete record is valid and round-trips through YAML", func(t *testing.T) {
+		l := withPlanReview("partial", intp(2), intp(0), intp(1))
+		if ps := Validate(l); len(ps) != 0 {
+			t.Fatalf("Validate: %v", ps)
+		}
+		data, err := Marshal(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "plan_review:") {
+			t.Fatalf("Marshal dropped plan_review:\n%s", data)
+		}
+		back, err := Parse(data)
+		if err != nil || !reflect.DeepEqual(back, l) {
+			t.Errorf("round trip: %v\n%+v\nwant %+v", err, back, l)
+		}
+	})
+	t.Run("every status in the enum is accepted", func(t *testing.T) {
+		for _, s := range []string{"complete", "partial", "unavailable", "error"} {
+			if ps := Validate(withPlanReview(s, intp(0), intp(0), intp(0))); len(ps) != 0 {
+				t.Errorf("status %q: %v", s, ps)
+			}
+		}
+	})
+	t.Run("a bad status is a problem", func(t *testing.T) {
+		for _, s := range []string{"", "ok", "Complete"} {
+			if ps := Validate(withPlanReview(s, intp(0), intp(0), intp(0))); !hasProblem(ps, "plan_review.status") {
+				t.Errorf("status %q: problems %v lack plan_review.status", s, ps)
+			}
+		}
+	})
+	t.Run("a negative count is a problem", func(t *testing.T) {
+		for path, l := range map[string]Lock{
+			"plan_review.omissions":  withPlanReview("complete", intp(-1), intp(0), intp(0)),
+			"plan_review.additions":  withPlanReview("complete", intp(0), intp(-1), intp(0)),
+			"plan_review.weakenings": withPlanReview("complete", intp(0), intp(0), intp(-1)),
+		} {
+			if ps := Validate(l); !hasProblem(ps, path) {
+				t.Errorf("%s: problems %v", path, ps)
+			}
+		}
+	})
+	t.Run("a partial record is a problem: all four keys are required", func(t *testing.T) {
+		for path, l := range map[string]Lock{
+			"plan_review.omissions":  withPlanReview("complete", nil, intp(0), intp(0)),
+			"plan_review.additions":  withPlanReview("complete", intp(0), nil, intp(0)),
+			"plan_review.weakenings": withPlanReview("complete", intp(0), intp(0), nil),
+		} {
+			if ps := Validate(l); !hasProblem(ps, path) {
+				t.Errorf("%s missing: problems %v", path, ps)
+			}
+		}
+		l, err := Parse([]byte("plan_review:\n  status: complete\n  omissions: 1\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ps := Validate(l); !hasProblem(ps, "plan_review.additions") || !hasProblem(ps, "plan_review.weakenings") {
+			t.Errorf("parsed partial record: problems %v", ps)
+		}
+	})
+	t.Run("an unknown key is rejected, so no finding text can ride in the record", func(t *testing.T) {
+		doc := string(readFixture(t, "valid.yml")) + "plan_review:\n  status: complete\n  omissions: 0\n  additions: 0\n  weakenings: 0\n  findings: [x]\n"
+		if _, err := Parse([]byte(doc)); err == nil {
+			t.Error("Parse accepted an unknown key under plan_review")
+		}
+	})
+	t.Run("the hash changes with the record", func(t *testing.T) {
+		base, err := Hash(validLock())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen := map[string]bool{base: true}
+		for _, l := range []Lock{
+			withPlanReview("complete", intp(0), intp(0), intp(0)),
+			withPlanReview("partial", intp(0), intp(0), intp(0)),
+			withPlanReview("complete", intp(1), intp(0), intp(0)),
+		} {
+			h, err := Hash(l)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if seen[h] {
+				t.Errorf("hash %s repeats: plan_review is not counted in the hash", h)
+			}
+			seen[h] = true
+		}
+	})
+	t.Run("without the record the S-01 golden is unchanged", func(t *testing.T) {
+		l, err := Parse(readFixture(t, "valid.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if l.PlanReview != nil {
+			t.Fatal("valid.yml parsed with a plan_review")
+		}
+		if h, err := Hash(l); err != nil || h != goldenHash {
+			t.Errorf("hash = %q (%v), want %q", h, err, goldenHash)
+		}
+		if data, _ := Marshal(l); strings.Contains(string(data), "plan_review") {
+			t.Errorf("Marshal wrote plan_review for a lock without one:\n%s", data)
+		}
+	})
+	t.Run("the JSON schema describes it", func(t *testing.T) {
+		raw, err := os.ReadFile("../../schema/intentgate.lock.v1.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s map[string]any
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatal(err)
+		}
+		props, _ := s["properties"].(map[string]any)
+		pr, _ := props["plan_review"].(map[string]any)
+		if pr == nil {
+			t.Fatal("schema has no plan_review")
+		}
+		if pr["additionalProperties"] != false {
+			t.Error("schema: plan_review accepts unknown keys")
+		}
+		if req, _ := pr["required"].([]any); len(req) != 4 {
+			t.Errorf("schema: plan_review.required = %v, want status and the three counts", pr["required"])
+		}
+		if req, _ := s["required"].([]any); len(req) != 7 {
+			t.Errorf("schema: top-level required = %v, plan_review must stay optional", s["required"])
+		}
+	})
+}

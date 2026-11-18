@@ -209,3 +209,36 @@ func TestMaskAndBuild_ScanBeforeWrite(t *testing.T) {
 		}
 	})
 }
+
+// S-11: the plan review's record is copied into the lock and is part of the hash.
+func TestBuild_PlanReview(t *testing.T) {
+	zero, two := 0, 2
+	in := testInput()
+	plain, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.PlanReview != nil {
+		t.Errorf("plan_review = %+v, want none when the input has none", plain.PlanReview)
+	}
+	rec := &lock.PlanReview{Status: "partial", Omissions: &two, Additions: &zero, Weakenings: &zero}
+	in.PlanReview = rec
+	l, err := Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.PlanReview == nil || l.PlanReview.Status != "partial" || *l.PlanReview.Omissions != 2 {
+		t.Fatalf("plan_review = %+v, want the input's record", l.PlanReview)
+	}
+	if l.PlanReview == rec {
+		t.Error("the lock shares the caller's record; Build must copy it")
+	}
+	if l.Hash == plain.Hash || !lock.VerifyHash(l) {
+		t.Errorf("hash %s vs %s: plan_review must be counted in the hash", l.Hash, plain.Hash)
+	}
+	bad := testInput()
+	bad.PlanReview = &lock.PlanReview{Status: "nonsense", Omissions: &zero, Additions: &zero, Weakenings: &zero}
+	if _, err := Build(bad); err == nil {
+		t.Error("Build accepted an invalid plan_review")
+	}
+}

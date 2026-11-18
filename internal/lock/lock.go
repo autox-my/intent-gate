@@ -46,6 +46,7 @@ type Lock struct {
 	RootIntent   RootIntent   `yaml:"root_intent" json:"root_intent"`
 	Criteria     []Criterion  `yaml:"criteria" json:"criteria"`
 	Ratification Ratification `yaml:"ratification" json:"ratification"`
+	PlanReview   *PlanReview  `yaml:"plan_review,omitempty" json:"plan_review,omitempty"`
 	Amendments   []Amendment  `yaml:"amendments" json:"amendments"`
 	Hash         string       `yaml:"hash" json:"hash,omitempty"`
 }
@@ -76,6 +77,16 @@ type Ratification struct {
 	Method           string  `yaml:"method" json:"method"`
 	ReviewDurationMS *int    `yaml:"review_duration_ms,omitempty" json:"review_duration_ms,omitempty"`
 	DraftedBy        *string `yaml:"drafted_by,omitempty" json:"drafted_by,omitempty"`
+}
+
+// PlanReview is the advisory plan review's outcome: the status and the three counts, never any
+// finding text, because findings quote the root intent (plan-review.md §4, REQ-0014). The counts
+// are pointers so that a missing key (a problem) is distinct from 0.
+type PlanReview struct {
+	Status     string `yaml:"status" json:"status"`
+	Omissions  *int   `yaml:"omissions" json:"omissions"`
+	Additions  *int   `yaml:"additions" json:"additions"`
+	Weakenings *int   `yaml:"weakenings" json:"weakenings"`
 }
 
 // Amendment kinds.

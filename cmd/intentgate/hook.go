@@ -17,6 +17,7 @@ import (
 	"intentgate/internal/gitx"
 	"intentgate/internal/hooks/claudecode"
 	"intentgate/internal/ids"
+	"intentgate/internal/planreview"
 	"intentgate/internal/ratify"
 )
 
@@ -55,6 +56,11 @@ type Deps struct {
 	// IsTerminal reports whether file descriptor fd (0 = stdin, 1 = stdout) is a terminal. A nil
 	// IsTerminal means "no terminal", so ratification is refused (REQ-0005).
 	IsTerminal func(fd int) bool
+
+	// PlanReviewer is the plan review's provider; nil means planreview.Select(os.Getenv).
+	PlanReviewer planreview.Reviewer
+	// PlanReviewBudget is the review's time budget; 0 means 5 s.
+	PlanReviewBudget time.Duration
 }
 
 const (
