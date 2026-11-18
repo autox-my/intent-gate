@@ -66,15 +66,15 @@ func stepByID(t *testing.T, a actionFile, id string) step {
 var pinned = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(/[A-Za-z0-9_./-]+)?@[0-9a-f]{40}$`)
 
 func TestAction_Static(t *testing.T) {
-	t.Run("shape: a composite Action named IntentGate with the two inputs", func(t *testing.T) {
+	t.Run("shape: a composite Action named IntentGate with the three inputs", func(t *testing.T) {
 		a := load(t)
 		if a.Name != "IntentGate" || a.Runs.Using != "composite" {
 			t.Errorf("name %q, using %q; want IntentGate, composite", a.Name, a.Runs.Using)
 		}
-		if a.Inputs["go-version"].Default != "stable" || a.Inputs["token"].Default != "${{ github.token }}" {
+		if a.Inputs["go-version"].Default != "stable" || a.Inputs["token"].Default != "${{ github.token }}" || a.Inputs["bot-login"].Default != "github-actions[bot]" {
 			t.Errorf("inputs = %+v", a.Inputs)
 		}
-		for _, id := range []string{"build", "verify", "publish"} {
+		for _, id := range []string{"build", "verify", "summary", "publish"} {
 			stepByID(t, a, id)
 		}
 		if v := a.Outputs["exit-code"].Value; !strings.Contains(v, "steps.verify.outputs.") {
@@ -94,7 +94,7 @@ func TestAction_Static(t *testing.T) {
 				t.Errorf("uses %q is not pinned to a 40-hex commit SHA", s.Uses)
 			}
 		}
-		for _, want := range []string{"actions/setup-go@", "github/codeql-action/upload-sarif@"} {
+		for _, want := range []string{"actions/setup-go@", "github/codeql-action/upload-sarif@", "actions/upload-artifact@"} {
 			found := false
 			for _, u := range seen {
 				found = found || strings.HasPrefix(u, want)
@@ -103,6 +103,52 @@ func TestAction_Static(t *testing.T) {
 				t.Errorf("no step uses %s…; saw %v", want, seen)
 			}
 		}
+	})
+
+	t.Run("pull_request only: every step is guarded, and any other event gets one warning and nothing else", func(t *testing.T) {
+		a := load(t)
+		const guard = "github.event_name == 'pull_request'"
+		warnings := 0
+		for _, s := range a.Runs.Steps {
+			if strings.Contains(s.If, "pull_request_target") {
+				t.Errorf("step %q mentions pull_request_target in its if: %q", s.ID, s.If)
+			}
+			if s.If == "github.event_name != 'pull_request'" {
+				warnings++
+				if !strings.Contains(s.Run, "::warning") || !strings.Contains(s.Run, "IntentGate supports pull_request only") {
+					t.Errorf("the other-event step does not warn %q: %q", "IntentGate supports pull_request only", s.Run)
+				}
+				if s.Uses != "" || strings.Contains(s.Run, "intentgate") && strings.Contains(s.Run, "publish") {
+					t.Errorf("the other-event step does more than warn: %+v", s)
+				}
+				continue
+			}
+			if !strings.HasPrefix(s.If, guard) {
+				t.Errorf("step %q (%q): if = %q, want it to start with %q", s.ID, s.Name, s.If, guard)
+			}
+		}
+		if warnings != 1 {
+			t.Errorf("%d warning steps for other events, want exactly 1", warnings)
+		}
+	})
+
+	t.Run("the warning step for another event exits 0 and warns", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not on PATH")
+		}
+		for _, s := range load(t).Runs.Steps {
+			if s.If != "github.event_name != 'pull_request'" {
+				continue
+			}
+			cmd := exec.Command("bash", "-eo", "pipefail", "-c", s.Run)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+			out, err := cmd.CombinedOutput()
+			if err != nil || !strings.Contains(string(out), "::warning") || !strings.Contains(string(out), "IntentGate supports pull_request only") {
+				t.Errorf("err = %v, out = %q", err, out)
+			}
+			return
+		}
+		t.Error("no warning step for other events")
 	})
 
 	t.Run("no run: script holds an expression, values arrive through env:", func(t *testing.T) {
@@ -120,8 +166,8 @@ func TestAction_Static(t *testing.T) {
 				t.Errorf("step %q: shell = %q, want bash", s.ID, s.Shell)
 			}
 		}
-		if runs < 3 {
-			t.Errorf("%d run steps, want at least build, verify and publish", runs)
+		if runs < 5 {
+			t.Errorf("%d run steps, want at least the warning, build, verify, summary and publish", runs)
 		}
 	})
 
@@ -171,12 +217,72 @@ func TestAction_Static(t *testing.T) {
 
 	t.Run("publish gets the token from the input and warns instead of failing", func(t *testing.T) {
 		p := stepByID(t, load(t), "publish")
-		if p.Env["GITHUB_TOKEN"] != "${{ inputs.token }}" || p.Env["PR_NUMBER"] != "${{ github.event.pull_request.number }}" {
+		if p.Env["GITHUB_TOKEN"] != "${{ inputs.token }}" || p.Env["PR_NUMBER"] != "${{ github.event.pull_request.number }}" || p.Env["BOT_LOGIN"] != "${{ inputs.bot-login }}" {
 			t.Errorf("publish env = %v", p.Env)
 		}
-		for _, frag := range []string{`publish`, `--repo "$GITHUB_REPOSITORY"`, `--pr "$PR_NUMBER"`, `--head-sha "$HEAD_SHA"`, `::warning`} {
+		for _, frag := range []string{`publish`, `--repo "$GITHUB_REPOSITORY"`, `--pr "$PR_NUMBER"`, `--head-sha "$HEAD_SHA"`, `--bot-login "$BOT_LOGIN"`, `::warning`} {
 			if !strings.Contains(p.Run, frag) {
 				t.Errorf("publish run lacks %s", frag)
+			}
+		}
+	})
+
+	t.Run("every run: summary.md goes to the job summary and the out dir is uploaded as the intentgate artifact", func(t *testing.T) {
+		a := load(t)
+		sum := stepByID(t, a, "summary")
+		if !strings.Contains(sum.Run, "$GITHUB_STEP_SUMMARY") || !strings.Contains(sum.Run, "summary.md") {
+			t.Errorf("summary run = %q", sum.Run)
+		}
+		var up *step
+		for i, s := range a.Runs.Steps {
+			if strings.HasPrefix(s.Uses, "actions/upload-artifact@") {
+				up = &a.Runs.Steps[i]
+			}
+		}
+		if up == nil {
+			t.Fatal("no upload-artifact step")
+		}
+		if up.With["name"] != "intentgate" || up.With["if-no-files-found"] != "ignore" {
+			t.Errorf("upload-artifact with = %v, want name intentgate and if-no-files-found ignore", up.With)
+		}
+		if p, _ := up.With["path"].(string); !strings.HasSuffix(p, "/intentgate") || !strings.Contains(p, "runner.temp") {
+			t.Errorf("upload-artifact path = %q, want the out dir under runner.temp", p)
+		}
+		if up.ContinueOnError != true {
+			t.Errorf("upload-artifact continue-on-error = %v", up.ContinueOnError)
+		}
+		// They run whatever the decision: neither waits for upload=true.
+		for _, s := range []step{sum, *up} {
+			if strings.Contains(s.If, "outputs.upload") {
+				t.Errorf("step %q is conditional on the SARIF decision: %q", s.ID, s.If)
+			}
+		}
+	})
+
+	t.Run("the summary step appends summary.md and exits 0 with or without it", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not on PATH")
+		}
+		sum := stepByID(t, load(t), "summary")
+		for _, present := range []bool{true, false} {
+			tmp := t.TempDir()
+			if present {
+				if err := os.MkdirAll(filepath.Join(tmp, "intentgate"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(tmp, "intentgate", "summary.md"), []byte("## IntentGate\nbody\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ghSum := filepath.Join(tmp, "step_summary")
+			cmd := exec.Command("bash", "-eo", "pipefail", "-c", sum.Run)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "RUNNER_TEMP=" + tmp, "GITHUB_STEP_SUMMARY=" + ghSum}
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Errorf("summary present=%v: %v\n%s", present, err, out)
+			}
+			got, _ := os.ReadFile(ghSum)
+			if present && string(got) != "## IntentGate\nbody\n" || !present && len(got) != 0 {
+				t.Errorf("summary present=%v: job summary = %q", present, got)
 			}
 		}
 	})
@@ -257,7 +363,7 @@ func TestAction_Static(t *testing.T) {
 				t.Errorf("verify argv = %q, want %q", args, want)
 			}
 			pargs, _ := os.ReadFile(filepath.Join(tmp, "args-publish"))
-			wantP := "publish\n--out-dir\n" + tmp + "/intentgate\n--repo\nocto/repo\n--pr\nvalue-of-PR_NUMBER\n--head-sha\nvalue-of-HEAD_SHA\n"
+			wantP := "publish\n--out-dir\n" + tmp + "/intentgate\n--repo\nocto/repo\n--pr\nvalue-of-PR_NUMBER\n--head-sha\nvalue-of-HEAD_SHA\n--bot-login\nvalue-of-BOT_LOGIN\n"
 			if string(pargs) != wantP {
 				t.Errorf("publish argv = %q, want %q", pargs, wantP)
 			}
@@ -280,6 +386,16 @@ func TestAction_Docs(t *testing.T) {
 	for _, frag := range []string{"pull_request", "fetch-depth: 0", "contents: read", "checks: write", "pull-requests: write", "security-events: write", "/action@"} {
 		if !strings.Contains(snippet, frag) {
 			t.Errorf("snippet lacks %q", frag)
+		}
+	}
+	for _, frag := range []string{"concurrency:", "group: intentgate-${{ github.event.pull_request.number }}", "cancel-in-progress: true"} {
+		if !strings.Contains(snippet, frag) {
+			t.Errorf("snippet lacks %q", frag)
+		}
+	}
+	for _, frag := range []string{"bot-login", "pull_request_target", "not supported", "artifact"} {
+		if !strings.Contains(readme, frag) {
+			t.Errorf("README does not mention %q", frag)
 		}
 	}
 	if !strings.Contains(strings.ToLower(readme), "fork") {
