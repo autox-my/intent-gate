@@ -380,6 +380,8 @@ func TestValidAt(t *testing.T) {
 		{"after 13 days", ratified.Add(13 * day), true},
 		{"exactly 14 days", ratified.Add(14 * day), true},
 		{"14 days and 1 second", ratified.Add(14*day + time.Second), false},
+		{"1 second before ratification", ratified.Add(-time.Second), false},
+		{"a year before ratification", ratified.Add(-365 * day), false},
 		{"a year later", ratified.Add(365 * day), false},
 		{"14 days in another zone", ratified.Add(14 * day).In(time.FixedZone("x", 7*3600)), true},
 	} {
@@ -416,7 +418,7 @@ func TestCanonicalJSON(t *testing.T) {
 			}
 		})
 	}
-	for _, in := range []string{`{"a":1.5}`, `[1.0]`, `[1e3]`, `{"a":-0}`, `{"a":`, `{"a":1,"a":2}`, ``} {
+	for _, in := range []string{"\"\xff\"", "{\"a\":\"\xff\"}", "{\"\xff\":1}", `{"a":1.5}`, `[1.0]`, `[1e3]`, `{"a":-0}`, `{"a":`, `{"a":1,"a":2}`, ``} {
 		if _, err := CanonicalJSON([]byte(in)); err == nil {
 			t.Errorf("CanonicalJSON(%q) accepted input that must be rejected", in)
 		}

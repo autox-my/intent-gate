@@ -21,8 +21,12 @@ var integerRE = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
 // CanonicalJSON returns the canonical form of the JSON document in data: the subset of
 // RFC 8785 (JCS) the lock needs. Object keys are sorted by UTF-16 code units, there is no
 // insignificant whitespace, strings use the RFC 8785 escaping, and numbers must be integers
-// within ±(2^53-1). Floats, duplicate keys, trailing data and invalid JSON are errors.
+// within ±(2^53-1). Floats, invalid UTF-8, duplicate keys, trailing data and invalid JSON are errors.
 func CanonicalJSON(data []byte) ([]byte, error) {
+	// encoding/json silently replaces invalid UTF-8 with U+FFFD, so check the raw bytes first.
+	if !utf8.Valid(data) {
+		return nil, errors.New("canonical json: input is not valid UTF-8")
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var out bytes.Buffer

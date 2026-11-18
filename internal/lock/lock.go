@@ -231,15 +231,16 @@ func VerifyHash(l Lock) bool {
 	return subtle.ConstantTimeCompare([]byte(want), []byte(l.Hash)) == 1
 }
 
-// ValidAt reports whether the lock is still valid at the evaluation time at: false when at is
-// more than 14 days after ratified_at, or when ratified_at doesn't parse (REQ-0022). The caller
-// supplies at; this package never reads the clock.
+// ValidAt reports whether the lock is valid at the evaluation time at: true only when
+// ratified_at <= at <= ratified_at + 14 days (REQ-0022). False before ratified_at (so a
+// future-dated lock can't outlive 14 days), after the window, or when ratified_at doesn't parse.
+// The caller supplies at; this package never reads the clock.
 func ValidAt(l Lock, at time.Time) bool {
 	t, err := parseUTC(l.Ratification.RatifiedAt)
 	if err != nil {
 		return false
 	}
-	return !at.After(t.Add(MaxAge))
+	return !at.Before(t) && !at.After(t.Add(MaxAge))
 }
 
 // parseUTC parses an RFC 3339 timestamp that must be written in UTC (a "Z" suffix).
