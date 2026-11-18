@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentgate.dev/schema/intentgate.lock.v1.json",
+  "title": "IntentGate intent lock",
+  "description": "The committed intent lock, schema intentgate.lock/1. The Go validation in internal/lock is the enforcement; this schema is the public contract. It has no field for root intent text and rejects unknown keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "revision", "base_ref", "root_intent", "criteria", "ratification"],
+  "properties": {
+    "schema": { "const": "intentgate.lock/1" },
+    "id": {
+      "description": "ULID, stable across amendments.",
+      "type": "string",
+      "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$"
+    },
+    "revision": { "type": "integer", "minimum": 1 },
+    "base_ref": { "type": "string", "minLength": 1 },
+    "root_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "source"],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "source": { "enum": ["claude-code-session", "issue", "plan-file"] }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text", "footprint"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "pattern": "\\S" },
+          "footprint": {
+            "description": "Path globs; a leading ! excludes. Glob syntax is checked by the Go validation.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1, "not": { "const": "!" } }
+          }
+        }
+      }
+    },
+    "ratification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ratifier", "ratified_at", "method"],
+      "properties": {
+        "ratifier": { "type": "string", "pattern": "\\S" },
+        "ratified_at": {
+          "description": "RFC 3339, UTC (Z suffix).",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "method": { "enum": ["hook", "cli-confirm", "issue"] },
+        "review_duration_ms": { "type": "integer", "minimum": 0 },
+        "drafted_by": { "type": "string" }
+      }
+    },
+    "amendments": { "type": "array", "items": { "type": "object" } },
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

@@ -14,3 +14,5 @@ relations: []
 pins:
   value: "8"
   operator: LE
+tests:
+  - "intentgate/internal/lock::TestValidate_CriteriaCount"

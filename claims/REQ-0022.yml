@@ -15,3 +15,5 @@ pins:
   operator: LE
   value: "14"
   unit: days
+tests:
+  - "intentgate/internal/lock::TestValidAt"
