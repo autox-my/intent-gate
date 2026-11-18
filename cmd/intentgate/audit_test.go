@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"intentgate/internal/audit"
+	"intentgate/internal/footprint"
 	"intentgate/internal/lock"
+	"intentgate/internal/verify"
 )
 
 // The audit tests run the real command line against temporary repositories and a temporary state
@@ -606,4 +608,15 @@ func TestLockAndAmend_AuditLog(t *testing.T) {
 			e.onlyLock()
 		})
 	})
+}
+
+func TestAuditLocks_DeletedLockNotCounted(t *testing.T) {
+	in := verify.Input{LockFiles: []verify.LockFile{
+		{Path: ".intent/01JD8Z6Q4M7R2T9X3B5N8K1C6F.yml", Status: footprint.Deleted},
+		{Path: ".intent/broken.yml", Status: footprint.Added, Data: []byte("not: [a lock")},
+	}}
+	locks, unverifiable := auditLocks(in)
+	if len(locks) != 0 || unverifiable != 1 {
+		t.Fatalf("auditLocks = %d locks, %d unverifiable; want 0 and 1 (the deleted lock is neither listed nor counted)", len(locks), unverifiable)
+	}
 }

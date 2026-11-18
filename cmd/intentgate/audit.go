@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"intentgate/internal/audit"
@@ -45,7 +44,7 @@ func writeAudit(stateDir string, line []byte) error {
 		return err
 	}
 	path := filepath.Join(stateDir, auditLogFile)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|auditOpenFlags, 0o600)
 	if err != nil {
 		return err
 	}

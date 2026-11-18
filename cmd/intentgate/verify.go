@@ -138,7 +138,10 @@ func sha256Hex(b []byte) string {
 // verify.json reports those files.
 func auditLocks(in verify.Input) (locks []lock.Lock, unverifiable int) {
 	for _, f := range in.LockFiles {
-		if f.Status == footprint.Deleted || f.Data == nil {
+		if f.Status == footprint.Deleted {
+			continue // a deleted lock is ignored by the PR check, so it is neither listed nor counted
+		}
+		if f.Data == nil {
 			unverifiable++
 			continue
 		}
