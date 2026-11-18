@@ -148,7 +148,7 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 	if err != nil {
 		return t.fail(exitNotConfirmed, "no lock: cannot read the plan: %v", err)
 	}
-	criteria, err := draftMasked(string(plan))
+	criteria, maskedPlan, err := draftAndMask(string(plan))
 	if err != nil {
 		return t.fail(draftCode(err), "%v", err)
 	}
@@ -172,7 +172,7 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)
 	}
 	return t.confirmAndWrite(pending{
-		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent, Plan: string(plan),
+		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent, Plan: maskedPlan,
 		Source: "plan-file", Method: "cli-confirm", Ratifier: "git:" + email,
 	})
 }
@@ -184,11 +184,19 @@ var errScan = errors.New("secret scan failed, nothing written")
 // (ratification.md §5): criterion text and footprints are committed in the lock and printed, so a
 // secret in the plan must never reach them.
 func draftMasked(plan string) ([]lock.Criterion, error) {
+	criteria, _, err := draftAndMask(plan)
+	return criteria, err
+}
+
+// draftAndMask is draftMasked that also returns the masked plan, so the plan review reuses it:
+// the plan is scanned once.
+func draftAndMask(plan string) ([]lock.Criterion, string, error) {
 	m, _, err := ratify.Mask(plan)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errScan, err)
+		return nil, "", fmt.Errorf("%w: %v", errScan, err)
 	}
-	return ratify.DraftCriteria(m.String())
+	criteria, err := ratify.DraftCriteria(m.String())
+	return criteria, m.String(), err
 }
 
 // draftCode is the exit code for an error from draftMasked: 3 for a failed scan, else 1.
@@ -204,7 +212,7 @@ type pending struct {
 	Top, BaseRef string
 	Criteria     []lock.Criterion
 	RootIntent   string
-	Plan         string // the text the criteria were drafted from; what the plan review compares with RootIntent
+	Plan         string // the masked text the criteria were drafted from; what the plan review compares with RootIntent
 	Source       string // root_intent.source
 	Method       string // ratification.method
 	Ratifier     string
@@ -222,7 +230,7 @@ func (t *term) confirmAndWrite(p pending) int {
 	showCriteria(t.out, p.Criteria)
 	// The advisory plan review runs here, before the prompt, within its budget; whatever it
 	// does, the lock goes on (REQ-0020). review_duration_ms starts at the prompt, after it.
-	res := runPlanReview(deps, p.RootIntent, p.Plan)
+	res := reviewStep(deps, p.Plan, func() (string, error) { return p.RootIntent, nil })
 	fmt.Fprint(t.out, planreview.Display(res))
 	yes, shown, answered := t.confirm("Type yes to lock these criteria:")
 	if !yes {

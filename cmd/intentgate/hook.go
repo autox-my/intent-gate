@@ -188,11 +188,11 @@ type pendingRecord struct {
 }
 
 func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
-	criteria, err := draftMasked(in.ToolInput.Plan)
+	criteria, maskedPlan, err := draftAndMask(in.ToolInput.Plan)
 	if err != nil {
 		return claudecode.Output{}, err
 	}
-	res := hookPlanReview(in, in.ToolInput.Plan, deps) // bounded by the budget; never fails the hook
+	res := hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
 	sum := sha256.Sum256([]byte(in.ToolInput.Plan))
 	data, err := json.Marshal(pendingRecord{
 		FinishedAt: deps.Now().UTC().Format(time.RFC3339Nano),

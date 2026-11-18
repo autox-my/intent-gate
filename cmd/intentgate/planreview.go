@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"time"
@@ -35,35 +36,77 @@ func (d Deps) reviewBudget() time.Duration {
 	return planReviewBudget
 }
 
-// runPlanReview masks both texts, then runs the review within the budget. A scan failure is a
-// review status of error: it never stops the caller.
-func runPlanReview(deps Deps, rawRootIntent, rawPlan string) planreview.Result {
-	root, _, err := ratify.Mask(rawRootIntent)
-	if err != nil {
-		return planreview.Failed("the secret scan of the root intent failed")
+// reviewSlack is kept back from the deadline so that the review step's own result, not the
+// outer timeout, is what normally ends the wait.
+const reviewSlack = 50 * time.Millisecond
+
+// reviewStep is the whole review step under one deadline (REQ-0019, review 1 of S-11): getting
+// the root intent, masking it, and the provider call all run in one goroutine, and the step
+// returns no later than the budget after the call, whatever any of them does. If the deadline
+// passes during preparation the review is unavailable. The goroutine is abandoned then; it
+// writes nothing shared, only its buffered result channel.
+//
+// maskedPlan has already been through the secret scan (it is also what the criteria were drafted
+// from, so it is masked once). rootIntent returns the raw root intent, or an error that is shown
+// as the review's status error and must not quote the intent.
+func reviewStep(deps Deps, maskedPlan string, rootIntent func() (string, error)) planreview.Result {
+	budget := deps.reviewBudget()
+	reviewer := deps.reviewer() // read here, not in the goroutine: deps is not shared with it
+	deadline := time.Now().Add(budget)
+
+	done := make(chan planreview.Result, 1)
+	go func() {
+		defer func() {
+			if recover() != nil { // the value is not kept: it could quote the intent
+				done <- planreview.Failed("the review step panicked")
+			}
+		}()
+		raw, err := rootIntent()
+		if err != nil {
+			done <- planreview.Failed(err.Error())
+			return
+		}
+		root, _, err := ratify.Mask(raw)
+		if err != nil {
+			done <- planreview.Failed("the secret scan of the root intent failed")
+			return
+		}
+		remaining := time.Until(deadline) - reviewSlack
+		if remaining <= 0 {
+			done <- planreview.Result{Status: planreview.Unavail}
+			return
+		}
+		done <- planreview.Run(context.Background(), reviewer, root.String(), maskedPlan, remaining)
+	}()
+
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	select {
+	case res := <-done:
+		return res
+	case <-timer.C:
+		return planreview.Result{Status: planreview.Unavail}
 	}
-	plan, _, err := ratify.Mask(rawPlan)
-	if err != nil {
-		return planreview.Failed("the secret scan of the plan failed")
-	}
-	return planreview.Run(context.Background(), deps.reviewer(), root.String(), plan.String(), deps.reviewBudget())
 }
 
-// hookPlanReview is the review for the hook's PreToolUse: it reads the transcript for the root
-// intent. Anything that goes wrong shows as status error.
-func hookPlanReview(in claudecode.Input, plan string, deps Deps) planreview.Result {
-	data, err := os.ReadFile(in.TranscriptPath)
-	if err != nil {
-		return planreview.Failed("cannot read the transcript")
-	}
-	rootIntent, _, err := claudecode.RootIntent(data)
-	if err != nil {
-		return planreview.Failed("cannot read the human turns from the transcript")
-	}
-	if strings.TrimSpace(rootIntent) == "" {
-		return planreview.Failed("the transcript has no human turns")
-	}
-	return runPlanReview(deps, rootIntent, plan)
+// hookPlanReview is the review for the hook's PreToolUse: the transcript is read, and the human
+// turns taken from it, inside the review step's budget. Anything that goes wrong shows as
+// status error.
+func hookPlanReview(in claudecode.Input, maskedPlan string, deps Deps) planreview.Result {
+	return reviewStep(deps, maskedPlan, func() (string, error) {
+		data, err := os.ReadFile(in.TranscriptPath)
+		if err != nil {
+			return "", errors.New("cannot read the transcript")
+		}
+		rootIntent, _, err := claudecode.RootIntent(data)
+		if err != nil {
+			return "", errors.New("cannot read the human turns from the transcript")
+		}
+		if strings.TrimSpace(rootIntent) == "" {
+			return "", errors.New("the transcript has no human turns")
+		}
+		return rootIntent, nil
+	})
 }
 
 // planReviewRecord is the status and counts of res, the only part of a review that is stored.
