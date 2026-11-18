@@ -464,39 +464,17 @@ func (e *env) record(id string) []byte {
 	return b
 }
 
-// shellSplit splits a POSIX shell command line the way a shell would for the quoting footprint
-// findings use: single quotes, and nothing else.
+// shellSplit splits a command line with a real POSIX shell (/bin/sh): the shell parses it as the
+// arguments of printf, which prints each one NUL-terminated. It runs in a temp directory.
 func shellSplit(t *testing.T, s string) []string {
 	t.Helper()
-	var args []string
-	var cur strings.Builder
-	inWord, inQuote := false, false
-	for _, r := range s {
-		switch {
-		case inQuote && r == '\'':
-			inQuote = false
-		case inQuote:
-			cur.WriteRune(r)
-		case r == '\'':
-			inQuote, inWord = true, true
-		case r == ' ':
-			if inWord {
-				args = append(args, cur.String())
-				cur.Reset()
-				inWord = false
-			}
-		default:
-			cur.WriteRune(r)
-			inWord = true
-		}
+	cmd := exec.Command("/bin/sh", "-c", `printf '%s\0' `+s)
+	cmd.Dir = t.TempDir()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("/bin/sh could not split %q: %v", s, err)
 	}
-	if inQuote {
-		t.Fatalf("unterminated quote in %q", s)
-	}
-	if inWord {
-		args = append(args, cur.String())
-	}
-	return args
+	return strings.Split(strings.TrimSuffix(string(out), "\x00"), "\x00")
 }
 
 // fixCommand is the exact command a footprint finding prints for a changed path.
@@ -516,6 +494,41 @@ func fixCommand(t *testing.T, e *env, id, changed string) string {
 		t.Fatalf("footprint findings for %s: %+v", changed, fs)
 	}
 	return fs[0].Fix
+}
+
+// REQ-0030, review 1 of S-05: the printed fix command, split by a shell, amends the lock so the
+// flagged path is covered, for paths with shell and glob metacharacters.
+func TestAmend_FixCommandRoundTrip(t *testing.T) {
+	for name, changed := range map[string]string{
+		"single quote":                 "docs/it's here/x.md",
+		"brackets":                     "docs/a[1]/x.md",
+		"braces":                       "docs/{a,b}/x.md",
+		"backslash":                    `docs/back\slash/x.md`,
+		"star, question and space":     "docs/we*ird? dir/x.md",
+		"root-level file with a quote": "it's.md",
+	} {
+		t.Run(name, func(t *testing.T) {
+			e, id, path := lockedEnv(t)
+			fix := fixCommand(t, e, id, changed)
+			words := shellSplit(t, fix)
+			if len(words) < 6 || words[0] != "intentgate" {
+				t.Fatalf("fix %q split into %q", fix, words)
+			}
+			code, stdout, stderr := e.do(words[1:], "yes\n")
+			if code != 0 {
+				t.Fatalf("fix %q: exit %d, stderr %q, stdout %q", fix, code, stderr, stdout)
+			}
+			l := e.readLock(path)
+			var cs []footprint.Criterion
+			for _, c := range l.Criteria {
+				cs = append(cs, footprint.Criterion{LockID: l.ID, ID: c.ID, Footprint: c.Footprint})
+			}
+			implicit, _ := footprint.NewImplicit(footprint.Config{}, nil)
+			if fs := footprint.Check([]footprint.ChangedFile{{Path: changed, Status: footprint.Modified}}, cs, implicit); len(fs) != 0 {
+				t.Errorf("after %q the path %q is still flagged: %+v (footprint %v)", fix, changed, fs, l.Criteria)
+			}
+		})
+	}
 }
 
 // REQ-0030
