@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"intentgate/internal/audit"
@@ -169,6 +170,11 @@ func runReplay(t *term, path string, deps Deps) int {
 	if ev.Schema != audit.SchemaID || ev.Event != audit.EventVerify || ev.BaseSHA == "" || ev.HeadSHA == "" || ev.BaseBranch == "" || ev.VerifySHA256 == "" {
 		return t.fail(exitUnverifiable, "intentgate verify: %s is not a %s verify event with its refs and verify_sha256", path, audit.SchemaID)
 	}
+	for _, sha := range []string{ev.BaseSHA, ev.HeadSHA} {
+		if err := pinnedCommit(deps.Dir, sha); err != nil {
+			return t.fail(exitUnverifiable, "intentgate verify: %s: %v", path, err)
+		}
+	}
 	in, _, err := readVerifyInput(deps.Dir, ev.BaseSHA, ev.HeadSHA, ev.BaseBranch, ev.Author, ev.AuthorType)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate verify: %v", err)
@@ -181,6 +187,25 @@ func runReplay(t *term, path string, deps Deps) int {
 	fmt.Fprintln(t.errOut, "replay: differs")
 	_, _ = t.out.Write(fresh)
 	return 1
+}
+
+var fullSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// pinnedCommit checks that sha is a full lower-case object name that resolves to itself as a
+// commit. A replay is only a replay of the recorded decision when the event pins the exact commits:
+// a branch name, a short sha, a tag or an expression would resolve to whatever they name today.
+func pinnedCommit(dir, sha string) error {
+	if !fullSHA.MatchString(sha) {
+		return fmt.Errorf("%q is not a full commit sha", sha)
+	}
+	got, err := gitx.Resolve(dir, sha)
+	if err != nil {
+		return err
+	}
+	if got != sha {
+		return fmt.Errorf("%s does not resolve to itself as a commit", sha)
+	}
+	return nil
 }
 
 // readVerifyInput reads everything the check looks at, at head, through git (verify.Input). It also
