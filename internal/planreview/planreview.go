@@ -263,10 +263,23 @@ func Display(res Result) string {
 }
 
 // Select chooses the provider from the environment of the machine that ratifies.
-// INTENTGATE_PLAN_REVIEW=off is Unavailable; in this slice so is everything else (S-12 adds Jev).
+// INTENTGATE_PLAN_REVIEW=off is Unavailable; otherwise a TYPESAFE_API_KEY selects Jev (with
+// TYPESAFE_BASE_URL and TYPESAFE_MODEL, which default to TypeSafe's API and jev-latest); with no
+// key it is Unavailable. intentgate never reads .env: the user exports the variable.
 func Select(getenv func(string) string) Reviewer {
-	if getenv != nil && getenv("INTENTGATE_PLAN_REVIEW") == "off" {
+	if getenv == nil || getenv("INTENTGATE_PLAN_REVIEW") == "off" {
 		return Unavailable{}
 	}
-	return Unavailable{}
+	key := getenv("TYPESAFE_API_KEY")
+	if key == "" {
+		return Unavailable{}
+	}
+	j := Jev{BaseURL: getenv("TYPESAFE_BASE_URL"), Key: key, Model: getenv("TYPESAFE_MODEL")}
+	if j.BaseURL == "" {
+		j.BaseURL = defaultBase
+	}
+	if j.Model == "" {
+		j.Model = defaultModel
+	}
+	return j
 }
