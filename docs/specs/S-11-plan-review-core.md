@@ -32,6 +32,11 @@ The plan review without a real model: the provider interface, the 5-second budge
   - Hook `post`: copies the pending record's plan-review record into the lock (none if the pending record predates this slice).
   - `intentgate lock` (`--from-plan`, `--issue`): runs the review after drafting and before the `yes` prompt, prints `Display(res)`, and records it in the lock. `review_duration_ms` still starts at the prompt, after the review.
   - `amend` doesn't run a review and keeps the lock's existing `plan_review` unchanged.
+- Review 1 amendments (binding):
+  - The 5 s budget covers the whole review step, not just the provider call: reading the transcript, extracting the human turns, masking both texts and `Run` all happen inside one goroutine under one deadline. If the deadline passes during preparation, the review is `unavailable` and the criteria message (hook) or the prompt (CLI) goes out on time; the abandoned goroutine writes nothing shared. The plan is masked once and the masked text reused for drafting and review.
+  - `Display` shows a provider error as one line of at most 200 bytes (cut on a UTF-8 boundary).
+  - For `lock --issue`, the plan given to the review is the criterion texts only, one per line (no footprints).
+  - Tests: the wired fixtures include at least one finding of each kind, and the lock's counts are asserted per kind; one end-to-end hook test runs with the real 5 s budget and a provider that hangs, and one with a 50 MB transcript, each asserting `pre` returns within 5 s + 1 s; `TestLock_PlanReviewDoesNotBlock` (covering `--from-plan` and `--issue`) is linked to REQ-0020.
 - Dependencies: none new.
 
 ## Tests first (committed red)
@@ -48,7 +53,7 @@ The red commit may contain stubs that compile, so the tests fail on assertions. 
 
 ## Claim links
 
-After green, add `tests:` (ids exactly as in `build/junit.xml`): REQ-0016, REQ-0017, REQ-0018 each `TestRun_ReportsEachKind` and `TestDisplay_EachKind`; REQ-0019 `TestRun_Budget`; REQ-0020 `TestHook_PlanReviewNeverBlocks`.
+After green, add `tests:` (ids exactly as in `build/junit.xml`): REQ-0016, REQ-0017, REQ-0018 each `TestRun_ReportsEachKind` and `TestDisplay_EachKind`; REQ-0019 `TestRun_Budget`; REQ-0020 `TestHook_PlanReviewNeverBlocks` and `TestLock_PlanReviewDoesNotBlock`.
 
 ## Verify
 
