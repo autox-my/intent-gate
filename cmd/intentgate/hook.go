@@ -49,29 +49,37 @@ const (
 )
 
 // Run executes the intentgate command line and returns the exit code. `hook claude-code pre|post`
-// fail open: they always exit 0 and print exactly one JSON object (ratification.md §2).
+// fail open: they always exit 0 and print exactly one JSON object (ratification.md §2), even on a
+// bad command line. Every other usage error exits 2 with usage on stderr (core-contracts.md §3).
 func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
-	if len(args) != 3 || args[0] != "hook" || args[1] != "claude-code" {
+	if len(args) < 3 || args[0] != "hook" || args[1] != "claude-code" {
 		return usageError(deps)
 	}
 	switch args[2] {
 	case "pre", "post":
-		out := safely(func() claudecode.Output { return runHook(args[2], stdin, deps) })
+		out := safely(func() claudecode.Output {
+			if len(args) != 3 {
+				return noLock(fmt.Errorf("unexpected arguments %q; usage: intentgate hook claude-code %s", args[3:], args[2]))
+			}
+			return runHook(args[2], stdin, deps)
+		})
 		_, _ = stdout.Write(out.Render())
 		return 0
 	case "print-config":
-		_, _ = stdout.Write(printConfig())
-		return 0
+		if len(args) == 3 {
+			_, _ = stdout.Write(printConfig())
+			return 0
+		}
 	}
 	return usageError(deps)
 }
 
-// usageError exits 1, not 2: for a hook, exit code 2 would mean "block the tool call".
+// usageError prints usage on stderr and returns 2, the usage-error code of every command.
 func usageError(deps Deps) int {
 	if deps.Stderr != nil {
 		_, _ = io.WriteString(deps.Stderr, usage)
 	}
-	return 1
+	return 2
 }
 
 // safely turns a panic into a "no lock" message: a hook never crashes the agent.

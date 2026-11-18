@@ -493,3 +493,57 @@ func TestHook_PrintConfig(t *testing.T) {
 		}
 	}
 }
+
+// Review 1 of S-04: pre/post always exit 0 with one JSON object, even on a bad command line;
+// every other usage error exits 2 with usage on stderr.
+func TestRun_ExitCodes(t *testing.T) {
+	t.Run("pre and post with extra arguments fail open", func(t *testing.T) {
+		for _, args := range [][]string{
+			{"hook", "claude-code", "pre", "extra"},
+			{"hook", "claude-code", "post", "a", "b"},
+		} {
+			e := newEnv(t, "dev@example.com")
+			var out bytes.Buffer
+			code := Run(args, strings.NewReader(e.input("PreToolUse", planText, "ExitPlanMode")), &out, e.deps)
+			var obj map[string]string
+			if err := json.Unmarshal(out.Bytes(), &obj); err != nil {
+				t.Errorf("%v: stdout %q is not a JSON object: %v", args, out.String(), err)
+				continue
+			}
+			if code != 0 || !strings.HasPrefix(obj["systemMessage"], "IntentGate: no lock: ") || len(obj) != 1 {
+				t.Errorf("%v: exit %d, %v; want exit 0 and a \"no lock:\" systemMessage", args, code, obj)
+			}
+			if got := e.deps.Stderr.(*bytes.Buffer).String(); got != "" {
+				t.Errorf("%v: stderr %q, want empty", args, got)
+			}
+			e.nothingWritten()
+			if got := e.pendingFiles(); len(got) != 0 {
+				t.Errorf("%v: pending records %v", args, got)
+			}
+		}
+	})
+	t.Run("every other usage error exits 2 with usage on stderr", func(t *testing.T) {
+		for _, args := range [][]string{
+			nil,
+			{"bogus"},
+			{"hook"},
+			{"hook", "claude-code"},
+			{"hook", "claude-code", "bogus"},
+			{"hook", "other-agent", "pre"},
+			{"hook", "claude-code", "print-config", "extra"},
+		} {
+			var out bytes.Buffer
+			stderr := &bytes.Buffer{}
+			code := Run(args, strings.NewReader(""), &out, Deps{Stderr: stderr})
+			if code != 2 {
+				t.Errorf("%v: exit %d, want 2", args, code)
+			}
+			if !strings.Contains(stderr.String(), "usage:") {
+				t.Errorf("%v: stderr %q lacks usage", args, stderr.String())
+			}
+			if out.Len() != 0 {
+				t.Errorf("%v: stdout %q, want empty", args, out.String())
+			}
+		}
+	})
+}
