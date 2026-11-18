@@ -1,0 +1,16 @@
+# A draft claim, adopted from docs/requirements.md. Nothing derived is stored: `req canon` shows the
+# parse this statement derives. A draft is a proposal (ADR 0004): edit the statement, add the
+# applicability and relations it needs, and pin a load-bearing bound under `pins:` if it has one.
+schema: req.claim/2
+claim_id: REQ-0037
+statement: "The PR check shall post no more than 1 comment per pull request."
+applicability: []
+rationale:
+  source: "docs/requirements.md#L64"
+  date: 2026-11-18
+  rejected_alternatives: []
+  assumptions: []
+relations: []
+pins:
+  value: "1"
+  operator: LE

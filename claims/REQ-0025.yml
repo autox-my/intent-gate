@@ -1,0 +1,13 @@
+# A draft claim, adopted from docs/requirements.md. Nothing derived is stored: `req canon` shows the
+# parse this statement derives. A draft is a proposal (ADR 0004): edit the statement, add the
+# applicability and relations it needs, and pin a load-bearing bound under `pins:` if it has one.
+schema: req.claim/2
+claim_id: REQ-0025
+statement: "The footprint check shall treat a test file paired with a module inside a footprint as inside that footprint."
+applicability: []
+rationale:
+  source: "docs/requirements.md#L49"
+  date: 2026-11-18
+  rejected_alternatives: []
+  assumptions: []
+relations: []
