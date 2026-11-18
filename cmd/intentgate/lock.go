@@ -146,9 +146,9 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 	if err != nil {
 		return t.fail(exitNotConfirmed, "no lock: cannot read the plan: %v", err)
 	}
-	criteria, err := ratify.DraftCriteria(string(plan))
+	criteria, err := draftMasked(string(plan))
 	if err != nil {
-		return t.fail(exitNotConfirmed, "%v", err)
+		return t.fail(draftCode(err), "%v", err)
 	}
 
 	var rootIntent string
@@ -173,6 +173,28 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 		Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: rootIntent,
 		Source: "plan-file", Method: "cli-confirm", Ratifier: "git:" + email,
 	})
+}
+
+// errScan is a failed secret scan; a drafting error is anything else.
+var errScan = errors.New("secret scan failed, nothing written")
+
+// draftMasked drafts criteria from a plan after the plan has been through the secret scan
+// (ratification.md §5): criterion text and footprints are committed in the lock and printed, so a
+// secret in the plan must never reach them.
+func draftMasked(plan string) ([]lock.Criterion, error) {
+	m, _, err := ratify.Mask(plan)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", errScan, err)
+	}
+	return ratify.DraftCriteria(m.String())
+}
+
+// draftCode is the exit code for an error from draftMasked: 3 for a failed scan, else 1.
+func draftCode(err error) int {
+	if errors.Is(err, errScan) {
+		return exitUnverifiable
+	}
+	return exitNotConfirmed
 }
 
 // pending is a lock ready to be shown to the human: everything but the confirmation.

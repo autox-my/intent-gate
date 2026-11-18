@@ -168,7 +168,7 @@ type pendingRecord struct {
 }
 
 func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
-	criteria, err := ratify.DraftCriteria(in.ToolInput.Plan)
+	criteria, err := draftMasked(in.ToolInput.Plan)
 	if err != nil {
 		return claudecode.Output{}, err
 	}
@@ -205,7 +205,7 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	if plan == "" {
 		return claudecode.Output{}, errors.New("the approved plan is missing from the hook input")
 	}
-	criteria, err := ratify.DraftCriteria(plan) // the approved plan wins over whatever pre saw
+	criteria, err := draftMasked(plan) // the approved plan wins over whatever pre saw
 	if err != nil {
 		return claudecode.Output{}, err
 	}

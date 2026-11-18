@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"intentgate/internal/forge/github"
-	"intentgate/internal/ratify"
 )
 
 // `intentgate lock --issue <n>` (ratification.md §3): the issue is both the root intent and the
@@ -163,9 +162,9 @@ func runLockIssue(t *term, n int, repoFlag string) int {
 	}
 
 	text, included := issueText(issue, comments)
-	criteria, err := ratify.DraftCriteria(text)
+	criteria, err := draftMasked(text)
 	if err != nil {
-		return t.fail(exitNotConfirmed, "%v", err)
+		return t.fail(draftCode(err), "%v", err)
 	}
 	top, err := deps.Git.TopLevel(deps.Dir)
 	if err != nil {
