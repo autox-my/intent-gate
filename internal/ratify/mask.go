@@ -39,6 +39,10 @@ var (
 // NewDetectorDefaultConfig, which uses global viper state, so it must not run concurrently.
 func defaultConfig() (config.Config, error) {
 	cfgOnce.Do(func() {
+		// NOTE: NewDetectorDefaultConfig reads gitleaks' embedded config through viper's global
+		// instance: it sets and reads global viper state (config type and contents), so it is not
+		// safe to run concurrently and it changes viper for anything else in the process that uses
+		// the global. The sync.Once keeps it to one call; only the parsed config is kept.
 		d, err := detect.NewDetectorDefaultConfig()
 		if err != nil {
 			cfgErr = err

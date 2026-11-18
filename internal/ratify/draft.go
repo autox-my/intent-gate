@@ -45,8 +45,7 @@ func str(n yaml.Node) (string, bool) {
 // DraftCriteria reads the plan's one ```intentgate block and returns its criteria with ids C1…Cn
 // (ratification.md §1.1). A missing or repeated block, invalid YAML, an unknown key, no criteria,
 // more than lock.MaxCriteria criteria, a text or footprint item that isn't a string, or an invalid
-// footprint is an error starting "no lock: ";
-// nothing is truncated or repaired.
+// footprint is an error starting "no lock: "; nothing is truncated or repaired.
 func DraftCriteria(plan string) ([]lock.Criterion, error) {
 	blocks := fencedBlocks(plan, infoString)
 	switch len(blocks) {
