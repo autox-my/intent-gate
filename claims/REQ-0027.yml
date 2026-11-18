@@ -11,3 +11,5 @@ rationale:
   rejected_alternatives: []
   assumptions: []
 relations: []
+tests:
+  - "intentgate/internal/footprint::TestImplicit_Lockfiles"

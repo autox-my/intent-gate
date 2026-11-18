@@ -221,7 +221,7 @@ func TestCheck_PairedTests(t *testing.T) {
 			if !reported(t, c.test, inside, off) {
 				t.Errorf("%s: test_pairing is false, but it was not reported", c.test)
 			}
-			excluded := []Criterion{{LockID: "L", ID: "C1", Footprint: []string{"**", "!" + c.subject}}}
+			excluded := []Criterion{{LockID: "L", ID: "C1", Footprint: []string{c.subject, "!" + c.subject}}}
 			if !reported(t, c.test, excluded, imp) {
 				t.Errorf("%s: its subject %s is excluded by a negated glob, but it was not reported", c.test, c.subject)
 			}
@@ -566,7 +566,7 @@ func TestFinding_FixCommand(t *testing.T) {
 		{
 			name: "nearest glob of a criterion is the best of its globs", path: "cmd/x/y.txt",
 			criteria: []Criterion{
-				{LockID: "LA", ID: "C1", Footprint: []string{"cmd/**"}},
+				{LockID: "LA", ID: "C1", Footprint: []string{"cmd/*.go"}},
 				{LockID: "LB", ID: "C2", Footprint: []string{"cmd/x/*.go", "zzz/**"}},
 			},
 			wantNearest: "C2", wantLock: "LB", wantFix: `intentgate amend LB --criterion C2 --add 'cmd/x/**'`,

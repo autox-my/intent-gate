@@ -1,6 +1,14 @@
 // Package footprint is the pure footprint check: given changed files, criteria and implicit
-// footprints it reports each changed file that lies outside all of them.
+// footprints it reports each changed file that lies outside all of them. It does no file I/O,
+// reads no clock and makes no network or model call (REQ-0031); adapters pass in bytes and values.
 package footprint
+
+import (
+	"sort"
+	"strings"
+
+	"github.com/bmatcuk/doublestar/v4"
+)
 
 // Status is how a file changed in the diff.
 type Status string
@@ -18,20 +26,11 @@ type ChangedFile struct {
 	Status        Status
 }
 
-// Criterion is one criterion of one lock.
+// Criterion is one criterion of one lock. Footprint holds positive globs and `!` negated globs.
 type Criterion struct {
 	LockID, ID string
 	Footprint  []string
 }
-
-// Config is the parsed .intentgate.yml.
-type Config struct {
-	Add, Remove []string
-	TestPairing bool
-}
-
-// Implicit is the set of implicit footprints in force.
-type Implicit struct{}
 
 // Finding is one changed path outside every footprint.
 type Finding struct {
@@ -42,11 +41,68 @@ type Finding struct {
 	Fix              string `json:"fix"`
 }
 
-// ParseConfig parses .intentgate.yml. nil or empty data yields the defaults.
-func ParseConfig(data []byte) (Config, error) { return Config{}, nil }
+// intentDir is where lock files live; they are checked by the PR check, not here.
+const intentDir = ".intent/"
 
-// NewImplicit builds the implicit footprints from the defaults, the config and .gitattributes.
-func NewImplicit(cfg Config, gitattributes []byte) (Implicit, error) { return Implicit{}, nil }
+// Check reports each changed file that is inside no criterion's footprint and no implicit
+// footprint (REQ-0024). A rename checks both paths; each one outside is its own finding. Findings
+// are sorted by path (then status), so the output is deterministic. The result is never nil.
+func Check(changed []ChangedFile, criteria []Criterion, implicit Implicit) []Finding {
+	findings := []Finding{}
+	for _, cf := range changed {
+		paths := []string{cf.Path}
+		if cf.Status == Renamed && cf.OldPath != "" {
+			paths = append(paths, cf.OldPath)
+		}
+		for _, p := range paths {
+			if p == "" || strings.HasPrefix(p, intentDir) {
+				continue
+			}
+			if insideAnyCriterion(p, criteria) || implicit.contains(p, criteria) {
+				continue
+			}
+			findings = append(findings, newFinding(p, cf.Status, criteria))
+		}
+	}
+	sort.SliceStable(findings, func(i, j int) bool {
+		if findings[i].Path != findings[j].Path {
+			return findings[i].Path < findings[j].Path
+		}
+		return findings[i].Status < findings[j].Status
+	})
+	return findings
+}
 
-// Check reports each changed file outside every criterion's footprint and every implicit footprint.
-func Check(changed []ChangedFile, criteria []Criterion, implicit Implicit) []Finding { return nil }
+// insideAnyCriterion reports whether path is inside the footprint of at least one criterion.
+func insideAnyCriterion(path string, criteria []Criterion) bool {
+	for _, c := range criteria {
+		if c.contains(path) {
+			return true
+		}
+	}
+	return false
+}
+
+// contains: a path is inside a criterion's footprint when it matches at least one positive glob
+// and none of the `!` globs. A glob that is not a valid pattern matches nothing.
+func (c Criterion) contains(path string) bool {
+	positive := false
+	for _, g := range c.Footprint {
+		if neg, ok := strings.CutPrefix(g, "!"); ok {
+			if matches(neg, path) {
+				return false
+			}
+			continue
+		}
+		if !positive && matches(g, path) {
+			positive = true
+		}
+	}
+	return positive
+}
+
+// matches is doublestar.Match: case-sensitive, `/` separators, `**` crosses directories.
+func matches(glob, path string) bool {
+	ok, err := doublestar.Match(glob, path)
+	return err == nil && ok
+}
