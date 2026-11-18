@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -185,8 +186,8 @@ func refusals() []refusal {
 		{name: "no token", args: []string{"lock", "--issue", "7"}, lines: []string{"yes\n"}, code: 2,
 			msg: "intentgate lock --issue needs a GitHub token (GITHUB_TOKEN, GH_TOKEN or gh auth login)",
 			setup: func(e *env, api *fakeAPI) {
-				os.Setenv("GITHUB_TOKEN", "")
-				os.Setenv("GH_TOKEN", "")
+				e.t.Setenv("GITHUB_TOKEN", "")
+				e.t.Setenv("GH_TOKEN", "")
 			}},
 		{name: "no repo and no remote", args: []string{"lock", "--issue", "7"}, lines: []string{"yes\n"}, code: 2, msg: "pass --repo owner/name",
 			setup: func(e *env, api *fakeAPI) { gitIn(e.t, e.repo, "remote", "remove", "origin") }},
@@ -281,6 +282,9 @@ func TestRepoFromRemote(t *testing.T) {
 		{"ssh://git@github.com/octo/repo.git", "octo", "repo", true},
 		{"ssh://git@github.com/octo/repo", "octo", "repo", true},
 		{"https://github.com/octo/repo.js.git", "octo", "repo.js", true},
+		{"git@GitHub.com:octo/Repo.git", "octo", "Repo", true},
+		{"https://GitHub.com/Octo/repo.git", "Octo", "repo", true},
+		{"ssh://git@GITHUB.COM/octo/repo", "octo", "repo", true},
 		{"git@gitlab.com:octo/repo.git", "", "", false},
 		{"https://bitbucket.org/octo/repo", "", "", false},
 		{"https://github.com/octo", "", "", false},
@@ -292,4 +296,164 @@ func TestRepoFromRemote(t *testing.T) {
 			t.Errorf("repoFromRemote(%q) = %q, %q, %v; want %q, %q, %v", tc.url, owner, name, ok, tc.owner, tc.name, tc.ok)
 		}
 	}
+}
+
+func TestLock_FromIssueCommentSelection(t *testing.T) {
+	run := func(t *testing.T, issue, comments string) (code int, stdout, stderr string, e *env) {
+		t.Helper()
+		e, api := issueEnv(t)
+		api.issue, api.comments = issue, comments
+		code, stdout, stderr = e.do([]string{"lock", "--issue", "7"}, "yes\n")
+		return
+	}
+	body := fmt.Sprintf(`"body":%q`, issueBody)
+	root := func(t *testing.T, e *env) string {
+		t.Helper()
+		l, _ := e.onlyLock()
+		rec, err := os.ReadFile(filepath.Join(e.state, "locks", l.ID, "root-intent.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(rec)
+	}
+
+	t.Run("ghost and null users never match, even each other", func(t *testing.T) {
+		code, stdout, stderr, e := run(t,
+			`{"number":7,"title":"T",`+body+`,"user":null}`,
+			`[{"body":"from a null user","user":null},{"body":"from ghost","user":{"login":"ghost"}},{"body":"from nobody","user":{"login":""}}]`)
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if got := root(t, e); got != issueBody {
+			t.Errorf("root intent %q, want the body alone", got)
+		}
+		if !strings.Contains(stdout, "0 of 3 comments included") {
+			t.Errorf("stdout:\n%s", stdout)
+		}
+	})
+	t.Run("a ghost issue author matches no comment", func(t *testing.T) {
+		code, stdout, stderr, e := run(t,
+			`{"number":7,"title":"T",`+body+`,"user":{"login":"ghost"}}`,
+			`[{"body":"from ghost","user":{"login":"ghost"}}]`)
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if got := root(t, e); strings.Contains(got, "from ghost") || !strings.Contains(stdout, "0 of 1 comments included") {
+			t.Errorf("root intent %q, stdout:\n%s", got, stdout)
+		}
+	})
+	t.Run("a null comment author does not match a real issue author", func(t *testing.T) {
+		code, stdout, stderr, e := run(t,
+			`{"number":7,"title":"T",`+body+`,"user":{"login":"alice"}}`,
+			`[{"body":"x","user":null},{"body":"kept","user":{"login":"ALICE"}}]`)
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout, "1 of 2 comments included") {
+			t.Errorf("stdout:\n%s", stdout)
+		}
+		if got := root(t, e); got != issueBody+partSep+"kept\n" {
+			t.Errorf("root intent %q", got)
+		}
+	})
+	t.Run("empty parts are not counted as included", func(t *testing.T) {
+		code, stdout, stderr, e := run(t,
+			`{"number":7,"title":"T",`+body+`,"user":{"login":"alice"}}`,
+			`[{"body":"","user":{"login":"alice"}},{"body":null,"user":{"login":"alice"}},{"body":" \n\t","user":{"login":"alice"}},{"body":"real","user":{"login":"alice"}}]`)
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if got := root(t, e); got != issueBody+partSep+"real\n" {
+			t.Errorf("root intent %q", got)
+		}
+		if !strings.Contains(stdout, "(by @alice, 1 of 4 comments included)") {
+			t.Errorf("stdout:\n%s", stdout)
+		}
+	})
+}
+
+// A GITHUB_API_URL that is not https (and not loopback) is refused before any request: the token
+// would travel in the clear.
+func TestLock_FromIssueRefusesPlainHTTPAPI(t *testing.T) {
+	e, api := issueEnv(t)
+	t.Setenv("GITHUB_API_URL", "http://api.example.test")
+	code, stdout, stderr := e.do([]string{"lock", "--issue", "7"}, "yes\n")
+	if code != 3 || !strings.Contains(stderr, "https") {
+		t.Errorf("exit %d, stderr %q; want 3 and a message about https", code, stderr)
+	}
+	if strings.Contains(stdout+stderr, issueToken) || api.calls.Load() != 0 {
+		t.Errorf("token leaked or the fake API was called (%d calls)", api.calls.Load())
+	}
+	e.nothingWritten()
+}
+
+// The gh auth token fallback, through an injected command: a fake gh on PATH.
+func TestGHAuthToken(t *testing.T) {
+	fakeGH := func(t *testing.T, script string) {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", dir)
+	}
+	t.Run("runs gh auth token and trims its output", func(t *testing.T) {
+		fakeGH(t, `[ "$1 $2" = "auth token" ] && [ $# -eq 2 ] && echo "  `+issueToken+`  " || exit 9`)
+		got, err := ghAuthToken()
+		if err != nil || got != issueToken {
+			t.Errorf("ghAuthToken() = %q, %v; want the token", got, err)
+		}
+	})
+	t.Run("a failing gh is an error that says nothing of its output", func(t *testing.T) {
+		fakeGH(t, `echo "`+issueToken+`" >&2; echo "`+issueToken+`"; exit 1`)
+		got, err := ghAuthToken()
+		if err == nil || got != "" || strings.Contains(err.Error(), issueToken) {
+			t.Errorf("ghAuthToken() = %q, %v", got, err)
+		}
+	})
+	t.Run("no gh on PATH is an error", func(t *testing.T) {
+		t.Setenv("PATH", t.TempDir())
+		if got, err := ghAuthToken(); err == nil || got != "" {
+			t.Errorf("ghAuthToken() = %q, %v", got, err)
+		}
+	})
+
+	lockWith := func(t *testing.T, gh func() (string, error)) (*env, *fakeAPI, int, string, string) {
+		t.Helper()
+		e, api := issueEnv(t)
+		t.Setenv("GITHUB_TOKEN", "")
+		t.Setenv("GH_TOKEN", "")
+		e.deps.GHAuthToken = gh
+		code, stdout, stderr := e.do([]string{"lock", "--issue", "7"}, "yes\n")
+		return e, api, code, stdout, stderr
+	}
+	t.Run("lock --issue falls back to gh auth token when no env token is set", func(t *testing.T) {
+		_, api, code, stdout, stderr := lockWith(t, func() (string, error) { return " " + issueToken + "\n", nil })
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if got, _ := api.authSeen.Load().(string); got != "Bearer "+issueToken {
+			t.Errorf("Authorization = %q", got)
+		}
+		if strings.Contains(stdout+stderr, issueToken) {
+			t.Error("the token was printed")
+		}
+	})
+	t.Run("a failing gh means no token: exit 2", func(t *testing.T) {
+		e, api, code, stdout, stderr := lockWith(t, func() (string, error) { return issueToken, errors.New("gh auth token failed") })
+		if code != 2 || !strings.Contains(stderr, noTokenMsg) || api.calls.Load() != 0 || strings.Contains(stdout+stderr, issueToken) {
+			t.Errorf("exit %d, stderr %q, %d API calls", code, stderr, api.calls.Load())
+		}
+		e.nothingWritten()
+	})
+	t.Run("an environment token wins and gh is not run", func(t *testing.T) {
+		e, api := issueEnv(t)
+		e.deps.GHAuthToken = func() (string, error) { t.Error("gh auth token was run"); return "ghp_OTHER", nil }
+		if code, _, stderr := e.do([]string{"lock", "--issue", "7"}, "yes\n"); code != 0 {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if got, _ := api.authSeen.Load().(string); got != "Bearer "+issueToken {
+			t.Errorf("Authorization = %q", got)
+		}
+	})
 }
