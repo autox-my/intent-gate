@@ -22,8 +22,9 @@ const (
 )
 
 // Client talks to the GitHub REST API at BaseURL with Token. BaseURL must be https (http only for a
-// loopback host) and no redirect is followed. A nil HTTP means a client with a 30 s request timeout. The token is only ever sent as the Authorization header of a request to BaseURL's
-// host, and never appears in an error.
+// loopback host) and no redirect is followed. A nil HTTP means a client with a 30 s request
+// timeout. The token is only ever sent as the Authorization header of a request to BaseURL's host,
+// and never appears in an error.
 type Client struct {
 	BaseURL string
 	Token   string
@@ -217,22 +218,81 @@ func scrubString(s, token string) string {
 	return strings.ReplaceAll(s, token, "[REDACTED]")
 }
 
-// nextLink returns the rel="next" URL of a Link header, or "".
+// nextLink returns the target of the first link in a Link header (RFC 8288) whose rel names the
+// relation type next, or "". rel may be a token or a quoted string and may hold several
+// space-separated relation types; only a link's first rel parameter counts (§3.3). A header that
+// can't be parsed from some point on yields the links before that point.
 func nextLink(header string) string {
-	for _, part := range strings.Split(header, ",") {
-		segs := strings.Split(part, ";")
-		if len(segs) < 2 {
-			continue
+	s := header
+	for {
+		s = strings.TrimLeft(s, " \t,")
+		if !strings.HasPrefix(s, "<") {
+			return ""
 		}
-		u := strings.TrimSpace(segs[0])
-		if !strings.HasPrefix(u, "<") || !strings.HasSuffix(u, ">") {
-			continue
+		end := strings.IndexByte(s, '>')
+		if end < 0 {
+			return ""
 		}
-		for _, p := range segs[1:] {
-			if strings.ReplaceAll(strings.TrimSpace(p), " ", "") == `rel="next"` {
-				return u[1 : len(u)-1]
+		target := strings.TrimSpace(s[1:end])
+		s = s[end+1:]
+		var rel string
+		var haveRel bool
+		for {
+			s = strings.TrimLeft(s, " \t")
+			if !strings.HasPrefix(s, ";") {
+				break
+			}
+			var name, value string
+			var ok bool
+			name, value, s, ok = linkParam(s[1:])
+			if !ok {
+				return ""
+			}
+			if strings.EqualFold(name, "rel") && !haveRel {
+				rel, haveRel = value, true
+			}
+		}
+		for _, r := range strings.Fields(rel) {
+			if strings.EqualFold(r, "next") && target != "" {
+				return target
 			}
 		}
 	}
-	return ""
+}
+
+// linkParam reads one `name[=value]` link parameter from the front of s (after its `;`): a token
+// name, then optionally `=` and a token or a quoted string with backslash escapes. It returns the
+// rest of s.
+func linkParam(s string) (name, value, rest string, ok bool) {
+	s = strings.TrimLeft(s, " \t")
+	i := strings.IndexAny(s, "=;, \t")
+	if i <= 0 {
+		return "", "", s, false
+	}
+	name, s = s[:i], strings.TrimLeft(s[i:], " \t")
+	if !strings.HasPrefix(s, "=") {
+		return name, "", s, true
+	}
+	s = strings.TrimLeft(s[1:], " \t")
+	if !strings.HasPrefix(s, `"`) {
+		j := strings.IndexAny(s, ";, \t")
+		if j < 0 {
+			j = len(s)
+		}
+		return name, s[:j], s[j:], true
+	}
+	var b strings.Builder
+	for j := 1; j < len(s); j++ {
+		switch s[j] {
+		case '\\':
+			if j++; j < len(s) {
+				b.WriteByte(s[j])
+			}
+		case '"':
+			return name, b.String(), s[j+1:], true
+		default:
+			b.WriteByte(s[j])
+		}
+	}
+	return "", "", "", false // an unterminated quoted string
 }
