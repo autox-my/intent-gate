@@ -22,11 +22,11 @@ Every `verify` run and every `lock` or `amend` writes one JSON event, schema `in
 }
 ```
 
-`ratification_method` is copied from each lock into every event, which is what REQ-0042 asks for. It also holds every input needed for `verify --replay` (core-contracts.md §1).
+`ratification_method` is copied from each lock into every event, which is what REQ-0042 asks for. A `verify` event also records `base_branch`, `author`, `author_type` and `verify_sha256` (the SHA-256 of the `verify.json` bytes), so `verify --replay <event.json>` can re-run the same refs in a clone that has them and confirm it reproduces the same bytes (core-contracts.md §1).
 
 | Event source | Where it goes |
 |---|---|
-| `verify` in CI | uploaded as the `intentgate-audit` workflow artifact, and summarised in the check run |
+| `verify` in CI | `audit.json` in the out dir, uploaded with the Action's `intentgate` artifact |
 | `lock`, `amend`, `verify` run locally | appended to `~/.intentgate/audit.jsonl` |
 
 Events contain no code, diff content or root intent text. They hold ids, hashes and counts only.
@@ -39,4 +39,4 @@ The rate is **derived, not collected**. Every amendment is written into the lock
 footprint-amendment rate = locks with ≥ 1 footprint amendment / locks merged, per 30 days
 ```
 
-`intentgate stats --since 30d` prints it with the other Phase 0 signals: locks per merged PR, ratification methods, median review duration and findings per PR. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
+`intentgate stats --since 30d` prints it with the other Phase 0 signals that git history alone can answer: lock count, ratification methods and median review duration. The window ends at the `HEAD` commit's committer time, not the wall clock, so the same commit gives the same numbers. Locks per merged PR and findings per PR need the forge or the CI artifacts and come later. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
