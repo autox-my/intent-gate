@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Kind is what a finding says about the plan.
@@ -72,6 +73,23 @@ const grace = 250 * time.Millisecond
 
 // maxShown is how many findings Display shows per kind.
 const maxShown = 5
+
+// maxErrBytes is how much of a provider's error text Display shows.
+const maxErrBytes = 200
+
+// oneLine is s on a single line (every run of white space, line breaks included, becomes one
+// space) cut to at most max bytes on a UTF-8 boundary. A provider's error text is untrusted.
+func oneLine(s string, max int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
 
 type outcome struct {
 	findings []Finding
@@ -204,8 +222,8 @@ func Display(res Result) string {
 		b.WriteString("unavailable")
 	default:
 		b.WriteString("error")
-		if res.Err != "" {
-			b.WriteString(": " + res.Err)
+		if msg := oneLine(res.Err, maxErrBytes); msg != "" {
+			b.WriteString(": " + msg)
 		}
 	}
 	b.WriteByte('\n')
