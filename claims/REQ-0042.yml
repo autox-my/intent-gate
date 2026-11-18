@@ -13,3 +13,4 @@ rationale:
 relations: []
 tests:
   - "intentgate/internal/audit::TestAuditEvent_RatificationMethod"
+  - "intentgate/cmd/intentgate::TestVerify_AuditEvent"
