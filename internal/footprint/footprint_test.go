@@ -720,3 +720,51 @@ func TestNoModelCall_Imports(t *testing.T) {
 		t.Fatal("no non-test .go files found to check")
 	}
 }
+
+// REQ-0034 (S-07): skip_authors is read by ParseConfig; the footprint check itself ignores it.
+func TestParseConfig_SkipAuthors(t *testing.T) {
+	t.Run("absent means none", func(t *testing.T) {
+		if cfg := mustConfig(t, "version: 1\n"); len(cfg.SkipAuthors) != 0 {
+			t.Errorf("SkipAuthors = %v, want none", cfg.SkipAuthors)
+		}
+	})
+	t.Run("a list of logins", func(t *testing.T) {
+		cfg := mustConfig(t, "version: 1\nskip_authors:\n  - my-release-bot\n  - \"other[bot]\"\n")
+		if !reflect.DeepEqual(cfg.SkipAuthors, []string{"my-release-bot", "other[bot]"}) {
+			t.Errorf("SkipAuthors = %v", cfg.SkipAuthors)
+		}
+	})
+	t.Run("alongside implicit_footprints", func(t *testing.T) {
+		cfg := mustConfig(t, "version: 1\nimplicit_footprints:\n  add: [\"docs/**\"]\nskip_authors: [bot-a]\n")
+		if !reflect.DeepEqual(cfg.SkipAuthors, []string{"bot-a"}) || !reflect.DeepEqual(cfg.Add, []string{"docs/**"}) {
+			t.Errorf("cfg = %+v", cfg)
+		}
+	})
+	t.Run("entries must be non-empty strings in a list", func(t *testing.T) {
+		for name, doc := range map[string]string{
+			"empty entry":      "version: 1\nskip_authors:\n  - \"\"\n",
+			"blank entry":      "version: 1\nskip_authors:\n  - \"  \"\n",
+			"not a list":       "version: 1\nskip_authors: dependabot\n",
+			"number in a list": "version: 1\nskip_authors:\n  - 7\n",
+			"null entry":       "version: 1\nskip_authors:\n  -\n",
+		} {
+			if _, err := ParseConfig([]byte(doc)); err == nil {
+				t.Errorf("%s: ParseConfig accepted %q", name, doc)
+			}
+		}
+	})
+	t.Run("unknown keys are still rejected", func(t *testing.T) {
+		if _, err := ParseConfig([]byte("version: 1\nskip_author: [x]\n")); err == nil {
+			t.Error("ParseConfig accepted skip_author")
+		}
+	})
+	t.Run("the footprint check ignores it", func(t *testing.T) {
+		with := mustImplicit(t, mustConfig(t, "version: 1\nskip_authors: [x]\n"), "")
+		without := defaultImplicit(t)
+		for _, p := range []string{"a.go", "vendor/x.go", "go.sum"} {
+			if reported(t, p, nil, with) != reported(t, p, nil, without) {
+				t.Errorf("%s: skip_authors changed the footprint result", p)
+			}
+		}
+	})
+}

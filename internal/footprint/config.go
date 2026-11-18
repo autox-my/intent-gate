@@ -16,6 +16,8 @@ import (
 type Config struct {
 	Add, Remove   []string
 	NoTestPairing bool
+	// SkipAuthors are PR authors the PR check skips; footprint itself ignores them.
+	SkipAuthors []string
 }
 
 var lockfileNames = []string{
