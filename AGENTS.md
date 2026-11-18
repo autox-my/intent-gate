@@ -36,3 +36,47 @@ All requirements live in `claims/`, one obligation per file, managed with
 - A committed projection is checked, never edited: `req render --check docs/spec.md`, regenerated with `req render --out docs/spec.md`.
 - An exit 3 is not a pass: report what could not be decided and ask a human, and never relax a check to land a change.
 - Never auto-merge, and never sign a Baseline: ratification is the human's act.
+
+## How work flows (SDLC)
+
+Adapted from req's own process (`docs/process/req-sdlc-study.md`).
+
+### The artifacts, and which one answers which question
+
+| Artifact | Answers | Lives in | Changes how |
+|---|---|---|---|
+| Requirement (req claim) | *What* must hold | `claims/REQ-NNNN.yml` | Edit the claim; `req diff` shows the direction; a human ratifies |
+| ADR | *Why* a hard-to-reverse choice was made | `docs/adr/NNNN-*.md` | New ADR supersedes old; merged before the code that depends on it |
+| Design element | *How* components meet the claims | `docs/design/*.md` (satisfaction links) | Edit; `req satisfy` flags links whose claim moved |
+| **Spec** | *This slice of work*: which claims, which paths, what "done" means | `docs/specs/S-NN-*.md` | Written by the orchestrator, committed **before** a worker starts |
+| Test | *Proof* a claim holds | `*_test.go`, linked from claims via `tests:` | Written first, committed red |
+| Code | the implementation | `cmd/`, `internal/` | Only after its test is red |
+
+A spec adds no new requirements and restates none. It points at claims and design sections and adds only what a worker needs for one slice: the allowed paths, choices fixed for the slice, the red-first tests and the verify command. **A spec is this project's intent lock, written by hand:** its criteria are claim ids, its footprint is the allowed paths. Once IntentGate's footprint check exists, it runs on our own branches against the spec.
+
+### Roles
+
+| Role | Who | Provider / model |
+|---|---|---|
+| Orchestrator | main thread: writes specs, checks branches, keeps the summary | Claude Opus 5.5 |
+| Worker | one per spec, in its own git worktree, writes tests then code | `claudeAgent` / `claude-sonnet-5-5` |
+| Reviewer | read-only, a different model family from the worker | `opencode` / `opencode-go/deepseek-v4.1-flash` |
+| Human | ratifies claims and links, reviews, merges | — |
+
+### The flow for one slice
+
+1. Orchestrator commits the spec (`docs(specs): S-NN …`).
+2. Worker, on branch `feature/s-NN-<slug>` in its own worktree:
+   1. `test(<pkg>): … (red at the base)`: the tests, plus only the stubs needed to compile. They must fail on **assertions**, not compile errors. Quote the failure in the report.
+   2. `feat(<pkg>): …`: the code that turns them green, plus `tests:` links on the spec's claims.
+   3. `scripts/check.sh` must end `verdict: GREEN`.
+3. Orchestrator checks `git diff <base>...<branch> --name-only` against the spec's allowed paths. A path outside them rejects the branch.
+4. Reviewer reviews the branch read-only; fixes are commits named `fix(<pkg>): … (review N of S-NN)`.
+5. Human merges. Agents never commit to `main` and never change the git identity.
+
+### Rules for every worker
+
+- Read the spec and the files it points to; don't restate them.
+- Touch only the spec's allowed paths. If a forbidden file must change, stop and report.
+- Never weaken a test, a check or a claim to get green. An exit 3 is not a pass.
+- Report back in at most 10 lines: branch, base commit, commits, files changed, red evidence, `check.sh` verdict, open questions.

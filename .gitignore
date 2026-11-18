@@ -5,3 +5,4 @@ req-views/
 target/
 node_modules/
 .env
+build/
