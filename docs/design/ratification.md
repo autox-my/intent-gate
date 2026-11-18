@@ -4,7 +4,7 @@
 <!-- req-satisfies: REQ-0003 -->
 <!-- req-satisfies: REQ-0004 -->
 <!-- req-satisfies: REQ-0005 -->
-<!-- req-satisfies: REQ-0013 -->
+<!-- req-satisfies: REQ-0012 -->
 <!-- req-satisfies: REQ-0015 -->
 
 A lock is created in exactly one of three ways. All three go through the same pipeline in `internal/ratify`, and all three record which way it happened (`ratification.method`, ADR 0003).
@@ -47,7 +47,7 @@ Hooks for Codex, Cursor, Kiro and Spec Kit are Phase 2.
 
 This stops a helpful agent from creating locks by accident. It doesn't stop a determined one (an agent can allocate a pseudo-terminal), and Phase 0 doesn't claim it does (ADR 0003).
 
-## 4. Review duration (REQ-0013)
+## 4. Review duration (REQ-0012)
 
 `review_duration_ms` is the time from when the criteria were first shown (step 5) to the confirmation (step 6):
 
