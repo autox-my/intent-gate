@@ -35,6 +35,14 @@ Supporting (already linked, don't re-link): REQ-0019/0020 (S-11's `Run` bounds a
 - Findings: omission when `omit` noul < 0.3 (confidence 1 − noul); weakening when `weak` noul > 0.7 (confidence noul); addition when `add` noul < 0.3 (confidence 1 − noul). `Quote` = the item text; `Text` = a fixed sentence per kind. No item with zero root items or zero plan items → no request, status `complete`, no findings.
 - Selection (`planreview.Select`): `INTENTGATE_PLAN_REVIEW=off` → `Unavailable`; else `TYPESAFE_API_KEY` set → `Jev` with `TYPESAFE_BASE_URL` (default `https://api.typesafe.ai`) and `TYPESAFE_MODEL` (default `jev-latest`); else `Unavailable`. `intentgate` never reads `.env` itself; the user exports the variable.
 - Live check (not part of the gate): `TestJev_Live` runs only when `INTENTGATE_LIVE_JEV=1` and `TYPESAFE_API_KEY` are set, otherwise skips. It sends four fixed cases (a clean plan, one clear omission, one clear addition, one clear weakening) and logs per case the findings and latency; it asserts only that each call returns 200 within 5 s and parses. The worker runs it once with the project key (`set -a; . ./.env; set +a` inside the command, never printing the key) and quotes the results in the report.
+- Review 1 amendments (binding):
+  - State also carries `plan_truncated` (bool), beside `root_intent_truncated`.
+  - Each answer is decoded on its own (`json.RawMessage` per id): a wrong-typed or malformed answer is skipped like a missing one; only a body that isn't a JSON object with an `answers` object is an error.
+  - The HTTP backstop is 10 s and is set on a copy of any caller-supplied client whose `Timeout` is zero; the caller's context deadline always fires first in production, and a deadline or client-timeout error is returned as `ctx.Err()` (`context.DeadlineExceeded`) so `Run` reports `partial`/`unavailable`, never `error` with Go's transport text.
+  - `TYPESAFE_BASE_URL` with userinfo, a query or a fragment is refused (error, no request); no error string ever contains the base URL's userinfo.
+  - The 1 MB body limit is checked before the status, and a non-2xx body is decoded only from within that limit.
+  - Tests never print a `Jev` value or its `Key` field.
+  - Cross-kind dedupe (one dropped item flagged as both omission and weakening) is left to Phase 1 tuning.
 - Dependencies: none new.
 
 ## Tests first (committed red)
