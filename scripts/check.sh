@@ -36,10 +36,10 @@ fi
 if need req; then
   step "req canon" req canon --fail-on-flag
   step "req satisfy" req satisfy
-  # Every claim links a passing test (since S-11), so req gate is a real step now.
-  # `req check` (the release fold) follows once a human signs the first Baseline under baselines/;
-  # until then it can only answer UNVERIFIABLE, and signing is the human's act, never an agent's.
-  step "req gate" req gate --test-report build/junit.xml
+  # The release fold: every declared variant's gate against the signed Baseline(s) under baselines/,
+  # plus completeness. Signing a Baseline is the human's act (scripts/sign-baseline.sh), never an agent's.
+  step "req check" req check --test-report build/junit.xml
+  step "req baseline" req baseline --verify baselines/phase0.json
 fi
 
 [ "$status" -eq 0 ] && echo "verdict: GREEN" || echo "verdict: RED"

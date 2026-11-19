@@ -50,6 +50,10 @@ jobs:
           tar -xzf "$REQ_ASSET" -C "$RUNNER_TEMP/req-bin" req
           echo "$RUNNER_TEMP/req-bin" >> "$GITHUB_PATH"
 
+      - name: Install minisign
+        # req verifies the signed Baseline through minisign (scripts/check.sh: req check, req baseline).
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq minisign && minisign -v
+
       - name: Check the req build
         run: |
           set -euo pipefail
