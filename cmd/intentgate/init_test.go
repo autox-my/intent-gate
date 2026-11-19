@@ -64,7 +64,8 @@ func lineWith(out, status, path string) bool {
 	return false
 }
 
-// hookCommands lists every command under hooks.<event> entries matching ExitPlanMode.
+// hookCommands lists every command under hooks.<event> entries, leaving out the AskUserQuestion
+// entries (S-18): TestInit_RegistersAskUserQuestion checks those.
 func hookCommands(t *testing.T, m map[string]any, event string) []string {
 	t.Helper()
 	var cmds []string
@@ -72,6 +73,9 @@ func hookCommands(t *testing.T, m map[string]any, event string) []string {
 	entries, _ := hooks[event].([]any)
 	for _, e := range entries {
 		em, _ := e.(map[string]any)
+		if em["matcher"] == "AskUserQuestion" {
+			continue
+		}
 		hs, _ := em["hooks"].([]any)
 		for _, h := range hs {
 			hm, _ := h.(map[string]any)
@@ -590,11 +594,13 @@ func TestInit_NewHookEntryKeyOrder(t *testing.T) {
 		return c.String()
 	}
 	for _, ev := range []string{"PreToolUse", "PostToolUse"} {
-		if len(got.Hooks[ev]) != 1 || len(want.Hooks[ev]) != 1 {
-			t.Fatalf("%s: got %d entries, want 1", ev, len(got.Hooks[ev]))
+		if len(got.Hooks[ev]) != len(want.Hooks[ev]) || len(want.Hooks[ev]) == 0 {
+			t.Fatalf("%s: got %d entries, want print-config's %d", ev, len(got.Hooks[ev]), len(want.Hooks[ev]))
 		}
-		if g, w := compact(got.Hooks[ev][0]), compact(want.Hooks[ev][0]); g != w {
-			t.Errorf("%s entry differs from print-config's:\n got  %s\n want %s", ev, g, w)
+		for i := range want.Hooks[ev] {
+			if g, w := compact(got.Hooks[ev][i]), compact(want.Hooks[ev][i]); g != w {
+				t.Errorf("%s entry %d differs from print-config's:\n got  %s\n want %s", ev, i, g, w)
+			}
 		}
 	}
 }

@@ -486,9 +486,14 @@ func TestHook_PrintConfig(t *testing.T) {
 		timeout int
 	}{"PreToolUse": {"intentgate hook claude-code pre", 60}, "PostToolUse": {"intentgate hook claude-code post", 30}} {
 		entries := cfg.Hooks[event]
-		if len(entries) != 1 || entries[0].Matcher != "ExitPlanMode" || len(entries[0].Hooks) != 1 {
+		if len(entries) == 0 || entries[0].Matcher != "ExitPlanMode" || len(entries[0].Hooks) != 1 {
 			t.Errorf("%s: %+v", event, entries)
 			continue
+		}
+		for _, e := range entries[1:] { // S-18: the same hook for the ratify card
+			if e.Matcher != "AskUserQuestion" || len(e.Hooks) != 1 || e.Hooks[0].Command != want.cmd || e.Hooks[0].Timeout != want.timeout {
+				t.Errorf("%s: extra entry %+v", event, e)
+			}
 		}
 		h := entries[0].Hooks[0]
 		if h.Type != "command" || h.Command != want.cmd || h.Timeout != want.timeout {
