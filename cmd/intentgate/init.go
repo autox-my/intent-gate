@@ -338,15 +338,59 @@ func planInstructions(top, agent string) (initFile, error) {
 // markerOffsets lists where marker occurs in text outside fenced code blocks: a marker inside a
 // fence (a documented example) is text, not a marker.
 func markerOffsets(text, marker string) []int {
+	fenced := fencedRanges(text)
 	var offs []int
 	for from := 0; ; {
 		i := strings.Index(text[from:], marker)
 		if i < 0 {
 			return offs
 		}
-		offs = append(offs, from+i)
-		from += i + len(marker)
+		at := from + i
+		from = at + len(marker)
+		inFence := false
+		for _, r := range fenced {
+			if at >= r[0] && at < r[1] {
+				inFence = true
+				break
+			}
+		}
+		if !inFence {
+			offs = append(offs, at)
+		}
 	}
+}
+
+// fencedRanges returns the byte ranges of the fenced code blocks (``` or ~~~, closed by a fence of
+// the same character at least as long; an unclosed fence runs to the end of the text).
+func fencedRanges(text string) [][2]int {
+	var ranges [][2]int
+	var open byte // the opening fence character, 0 outside a fence
+	var openLen, start int
+	for pos := 0; pos < len(text); {
+		end := len(text)
+		if i := strings.IndexByte(text[pos:], '\n'); i >= 0 {
+			end = pos + i + 1
+		}
+		line := strings.TrimRight(text[pos:end], "\r\n")
+		trimmed := strings.TrimLeft(line, " ")
+		if len(line)-len(trimmed) <= 3 && len(trimmed) >= 3 && (trimmed[0] == '`' || trimmed[0] == '~') {
+			c := trimmed[0]
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, string(c)))
+			rest := trimmed[run:]
+			switch {
+			case open == 0 && run >= 3 && !(c == '`' && strings.Contains(rest, "`")):
+				open, openLen, start = c, run, pos
+			case open == c && run >= openLen && strings.TrimSpace(rest) == "":
+				ranges = append(ranges, [2]int{start, end})
+				open = 0
+			}
+		}
+		pos = end
+	}
+	if open != 0 {
+		ranges = append(ranges, [2]int{start, len(text)})
+	}
+	return ranges
 }
 
 // instructionsSection is the text between the markers, markers included, without a trailing newline.
