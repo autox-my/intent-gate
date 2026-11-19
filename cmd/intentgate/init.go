@@ -251,13 +251,10 @@ func objectAt(doc map[string]any, key string) (map[string]any, error) {
 	return nil, fmt.Errorf("%s is not an object", key)
 }
 
-// runsIntentgate reports whether an ExitPlanMode entry already runs `intentgate hook claude-code <which>`.
+// runsIntentgate reports whether an entry, under any matcher, already runs `intentgate hook claude-code <which>`.
 func runsIntentgate(entries []any, which string) bool {
 	for _, e := range entries {
 		em, _ := e.(map[string]any)
-		if em["matcher"] != exitPlanMode {
-			continue
-		}
 		hs, _ := em["hooks"].([]any)
 		for _, h := range hs {
 			hm, _ := h.(map[string]any)
@@ -274,7 +271,9 @@ func isIntentgateHook(command, which string) bool {
 	want := []string{"intentgate", "hook", "claude-code", which}
 	f := strings.Fields(command)
 	for i := 0; i+len(want) <= len(f); i++ {
-		if reflect.DeepEqual(f[i:i+len(want)], want) {
+		// The binary may be given as a path (/usr/local/bin/intentgate).
+		got := append([]string{filepath.Base(f[i])}, f[i+1:i+len(want)]...)
+		if reflect.DeepEqual(got, want) {
 			return true
 		}
 	}
