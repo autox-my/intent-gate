@@ -287,6 +287,31 @@ func RenderCard(path, sha256hex string) []byte {
 	return b.Bytes()
 }
 
+// TranscriptAnswers returns the answers of the AskUserQuestion with this tool_use_id as the harness
+// recorded them in a JSONL transcript: the toolUseResult of the first user entry holding a
+// tool_result for that id. It is the fallback when a PostToolUse input carries no answers. An error
+// result, an entry without answers, a result for another id or a malformed line gives none.
+func TranscriptAnswers(transcript []byte, toolUseID string) map[string]string {
+	if toolUseID == "" {
+		return nil
+	}
+	for _, line := range bytes.Split(transcript, []byte("\n")) {
+		var e entry
+		if len(bytes.TrimSpace(line)) == 0 || json.Unmarshal(line, &e) != nil || e.Type != "user" || e.IsSidechain {
+			continue
+		}
+		for _, b := range planBlocks(e.Message.Content) {
+			if b.Type == "tool_result" && b.ToolUseID == toolUseID {
+				if b.IsError {
+					return nil
+				}
+				return answersOf(e.ToolUseResult) // the first result is the answer
+			}
+		}
+	}
+	return nil
+}
+
 // Ratified reports whether the human chose exactly Ratify for the card in a PostToolUse input.
 func (c Card) Ratified(answers map[string]string) bool {
 	return answers[c.Question] == RatifyLabel

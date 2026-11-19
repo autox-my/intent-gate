@@ -146,9 +146,17 @@ func preCard(in claudecode.Input, card claudecode.Card, recPath string, deps Dep
 }
 
 // postCard is PostToolUse on the card: only the answer Ratify, to a plan file that still hashes to
-// the question's, writes a lock.
+// the question's, writes a lock. The answer is tool_response's; if that has none for the question,
+// the transcript's for the same tool_use_id (also written by the harness); anything else is "not
+// ratified".
 func postCard(in claudecode.Input, card claudecode.Card, recPath string, deps Deps) (claudecode.Output, error) {
-	if !card.Ratified(in.ToolResponse.Answers) {
+	answers := in.ToolResponse.Answers
+	if _, ok := answers[card.Question]; !ok { // tool_response has no answer: the transcript's, else fail closed
+		if tdata, err := os.ReadFile(in.TranscriptPath); err == nil {
+			answers = claudecode.TranscriptAnswers(tdata, in.ToolUseID)
+		}
+	}
+	if !card.Ratified(answers) {
 		_ = os.Remove(recPath)
 		return claudecode.Output{SystemMessage: notRatified}, nil
 	}
