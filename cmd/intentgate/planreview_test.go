@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,10 @@ func TestHook_PlanReviewNeverBlocks(t *testing.T) {
 			if code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") {
 				t.Fatalf("post: exit %d, %v", code, obj)
 			}
+			wantSuffix := fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", c.wantStatus, c.wantCounts[0], c.wantCounts[1], c.wantCounts[2])
+			if !strings.HasSuffix(obj["systemMessage"], wantSuffix) {
+				t.Errorf("post systemMessage = %q, want suffix %q", obj["systemMessage"], wantSuffix)
+			}
 			l, path := e.onlyLock()
 			if ps := lock.Validate(l); len(ps) != 0 || !lock.VerifyHash(l) {
 				t.Fatalf("lock invalid: %v", ps)
@@ -115,11 +120,16 @@ func TestHook_PlanReviewNeverBlocks(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode")); code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") {
+		code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
+		if code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") {
 			t.Fatalf("post: %d %v", code, obj)
 		}
-		if l, _ := e.onlyLock(); l.PlanReview != nil {
+		l, _ := e.onlyLock()
+		if l.PlanReview != nil {
 			t.Errorf("plan_review = %+v, want none", l.PlanReview)
+		}
+		if want := "IntentGate: intent lock written: .intent/" + l.ID + ".yml"; obj["systemMessage"] != want {
+			t.Errorf("post systemMessage = %q, want exactly %q", obj["systemMessage"], want)
 		}
 	})
 	t.Run("a tampered pending record's plan review is dropped, not written into the lock", func(t *testing.T) {
