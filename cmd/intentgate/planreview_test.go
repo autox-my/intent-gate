@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/lock"
-	"intentgate/internal/planreview"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/planreview"
 )
 
 // S-11: the plan review's wiring. The providers are fakes; no test makes a network or model call.

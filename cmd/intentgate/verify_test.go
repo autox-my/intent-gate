@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/lock"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 // The `verify` tests run the real command line against temporary git repositories. Every commit

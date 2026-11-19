@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // Review 1 of S-06: a plan is masked before criteria are drafted from it, on every path that does so

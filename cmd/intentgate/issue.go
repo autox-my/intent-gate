@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"intentgate/internal/forge/github"
+	"github.com/autox-my/intent-gate/internal/forge/github"
 )
 
 // `intentgate lock --issue <n>` (ratification.md §3): the issue is both the root intent and the

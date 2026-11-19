@@ -5,9 +5,9 @@ import (
 	"math/rand"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/lock"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // permuteCases are the golden cases plus cases whose Changed and LockFiles entries agree on their

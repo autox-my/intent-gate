@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 const testID = "01JD8Z6Q4M7R2T9X3B5N8K1C6F"

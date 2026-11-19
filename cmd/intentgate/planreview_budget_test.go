@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/planreview"
+	"github.com/autox-my/intent-gate/internal/planreview"
 )
 
 // Review 1 of S-11: the budget covers the whole review step (reading the transcript, extracting

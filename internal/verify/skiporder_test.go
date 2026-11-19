@@ -3,7 +3,7 @@ package verify_test
 import (
 	"testing"
 
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // Review 1 of S-07, skip order: the author type and the default bot logins are checked first;

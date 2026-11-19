@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/lock"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 // The stats tests run `intentgate stats` against a temporary repository whose commits have fixed

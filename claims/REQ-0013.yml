@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/lock::TestHash_StableUnderReformatting"
-  - "intentgate/internal/lock::TestHash_ChangesWithContent"
+  - "github.com/autox-my/intent-gate/internal/lock::TestHash_StableUnderReformatting"
+  - "github.com/autox-my/intent-gate/internal/lock::TestHash_ChangesWithContent"

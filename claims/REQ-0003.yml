@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/cmd/intentgate::TestLock_FromIssue"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_FromIssue"

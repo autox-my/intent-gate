@@ -15,7 +15,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"intentgate/internal/report"
+	"github.com/autox-my/intent-gate/internal/report"
 )
 
 // Nothing here reaches the real GitHub API or reads a real token: every test points GITHUB_API_URL

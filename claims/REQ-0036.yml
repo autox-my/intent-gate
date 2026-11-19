@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/report::TestSARIF"
+  - "github.com/autox-my/intent-gate/internal/report::TestSARIF"

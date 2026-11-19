@@ -5,10 +5,10 @@ import (
 	"math/rand"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // equalKeyResult has entries that agree on their primary sort key (the path) and differ only in

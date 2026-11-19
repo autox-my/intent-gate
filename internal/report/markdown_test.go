@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // stripCodeSpans removes the inline code spans of s the way CommonMark reads them: a run of n

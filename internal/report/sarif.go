@@ -3,8 +3,8 @@ package report
 import (
 	"strings"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // RuleID is the SARIF rule of a footprint finding (REQ-0036).

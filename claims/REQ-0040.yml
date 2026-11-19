@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/verify::TestGolden_Deterministic"
-  - "intentgate/cmd/intentgate::TestVerify_Deterministic"
+  - "github.com/autox-my/intent-gate/internal/verify::TestGolden_Deterministic"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestVerify_Deterministic"

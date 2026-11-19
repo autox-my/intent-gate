@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/lock::TestValidate_ReviewDuration"
+  - "github.com/autox-my/intent-gate/internal/lock::TestValidate_ReviewDuration"

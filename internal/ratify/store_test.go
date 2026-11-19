@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 func builtLock(t *testing.T, text string) lock.Lock {

@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // The issue, its comments and the token below are synthetic. Nothing here reaches the real GitHub

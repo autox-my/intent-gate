@@ -15,4 +15,4 @@ pins:
   value: "1"
   operator: LE
 tests:
-  - "intentgate/cmd/intentgate::TestPublish_OneComment"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestPublish_OneComment"

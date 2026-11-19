@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"intentgate/internal/audit"
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // The audit log (audit-metrics.md §1): one intentgate.audit/1 event per `verify`, `lock` and

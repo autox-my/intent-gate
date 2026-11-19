@@ -16,4 +16,4 @@ pins:
   value: "14"
   unit: days
 tests:
-  - "intentgate/internal/lock::TestValidAt"
+  - "github.com/autox-my/intent-gate/internal/lock::TestValidAt"

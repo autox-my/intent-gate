@@ -3,9 +3,9 @@ package policy_test
 import (
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/policy"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 var allOutcomes = []verify.Outcome{verify.Skipped, verify.NoLock, verify.Clean, verify.Findings, verify.Unverifiable}

@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/footprint::TestNoModelCall_Imports"
+  - "github.com/autox-my/intent-gate/internal/footprint::TestNoModelCall_Imports"

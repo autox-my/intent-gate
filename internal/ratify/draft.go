@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // infoString is the fence info string that marks the criteria block (ratification.md §1.1).

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/lock"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 const (

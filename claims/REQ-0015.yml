@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/ratify::TestMask_RedactsSecrets"
-  - "intentgate/internal/ratify::TestMaskAndBuild_ScanBeforeWrite"
+  - "github.com/autox-my/intent-gate/internal/ratify::TestMask_RedactsSecrets"
+  - "github.com/autox-my/intent-gate/internal/ratify::TestMaskAndBuild_ScanBeforeWrite"

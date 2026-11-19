@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // Review 1 of S-07: only added, modified, renamed and deleted are lock file statuses the check

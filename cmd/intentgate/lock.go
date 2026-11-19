@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"intentgate/internal/audit"
-	"intentgate/internal/ids"
-	"intentgate/internal/lock"
-	"intentgate/internal/planreview"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/ids"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/planreview"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 // The ratification commands (ratification.md §3, footprint-check.md §5): `lock --from-plan` and

@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/footprint::TestImplicit_Lockfiles"
+  - "github.com/autox-my/intent-gate/internal/footprint::TestImplicit_Lockfiles"

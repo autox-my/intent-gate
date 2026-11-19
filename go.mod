@@ -1,4 +1,4 @@
-module intentgate
+module github.com/autox-my/intent-gate
 
 go 1.23.0
 

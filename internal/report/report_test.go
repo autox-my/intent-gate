@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 const lockID = "01JD8Z6Q4M7R2T9X3B5N8K1C6F"

@@ -13,13 +13,13 @@ import (
 	"regexp"
 	"strings"
 
-	"intentgate/internal/audit"
-	"intentgate/internal/footprint"
-	"intentgate/internal/gitx"
-	"intentgate/internal/lock"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/gitx"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // `verify` runs the PR check locally or in CI (pr-check.md §1-§2): it reads the inputs from git at

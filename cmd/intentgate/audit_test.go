@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/audit"
-	"intentgate/internal/footprint"
-	"intentgate/internal/lock"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // The audit tests run the real command line against temporary repositories and a temporary state

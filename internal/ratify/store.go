@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // Store is where a ratified lock goes: the committed lock under RepoRoot/.intent and the root

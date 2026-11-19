@@ -13,13 +13,13 @@ import (
 	"strings"
 	"time"
 
-	"intentgate/internal/audit"
-	"intentgate/internal/gitx"
-	"intentgate/internal/hooks/claudecode"
-	"intentgate/internal/ids"
-	"intentgate/internal/lock"
-	"intentgate/internal/planreview"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/gitx"
+	"github.com/autox-my/intent-gate/internal/hooks/claudecode"
+	"github.com/autox-my/intent-gate/internal/ids"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/planreview"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 // Git is the repository facts the hook needs (internal/gitx behind an interface for tests).

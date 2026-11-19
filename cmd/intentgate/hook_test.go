@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/ids"
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/ids"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // The transcript and the plan are synthetic: committed fixtures never hold real session content.

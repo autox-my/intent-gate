@@ -12,6 +12,6 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/cmd/intentgate::TestLock_RequiresTerminalAndYes"
-  - "intentgate/cmd/intentgate::TestAmend_RequiresTerminalAndYes"
-  - "intentgate/cmd/intentgate::TestLock_BuiltBinaryNeedsRealTerminal"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_RequiresTerminalAndYes"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestAmend_RequiresTerminalAndYes"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_BuiltBinaryNeedsRealTerminal"

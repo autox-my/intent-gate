@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 const (

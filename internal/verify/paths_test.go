@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // Review 1 of S-07: a changed path that is absolute, or has an empty, "." or ".." segment, makes

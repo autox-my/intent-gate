@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/lock"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 var update = flag.Bool("update", false, "regenerate the golden files (never in CI)")

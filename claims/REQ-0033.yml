@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/policy::TestDecide_NoLockNoComment"
+  - "github.com/autox-my/intent-gate/internal/policy::TestDecide_NoLockNoComment"

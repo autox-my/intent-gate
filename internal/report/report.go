@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/policy"
-	"intentgate/internal/verify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/verify"
 )
 
 // SchemaID is the value of the JSON document's schema key.

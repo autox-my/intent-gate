@@ -2,7 +2,7 @@
 // pure: no I/O, clock or randomness.
 package policy
 
-import "intentgate/internal/verify"
+import "github.com/autox-my/intent-gate/internal/verify"
 
 // CommentMode says what the comment step does.
 type CommentMode string

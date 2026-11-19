@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // LockFile is one changed path under .intent/ ending in .yml, with its content at head (nil when

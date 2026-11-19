@@ -12,6 +12,6 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/footprint::TestFinding_FixCommand"
-  - "intentgate/cmd/intentgate::TestAmend_AddGlob"
-  - "intentgate/cmd/intentgate::TestAmend_FixCommandRoundTrip"
+  - "github.com/autox-my/intent-gate/internal/footprint::TestFinding_FixCommand"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestAmend_AddGlob"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestAmend_FixCommandRoundTrip"

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"intentgate/internal/hooks/claudecode"
-	"intentgate/internal/lock"
-	"intentgate/internal/planreview"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/hooks/claudecode"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/planreview"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 // The plan review's wiring (plan-review.md §4, §5): it runs on the ratifier's machine, on the

@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/cmd/intentgate::TestHook_PlanReviewNeverBlocks"
-  - "intentgate/cmd/intentgate::TestLock_PlanReviewDoesNotBlock"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_PlanReviewNeverBlocks"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_PlanReviewDoesNotBlock"

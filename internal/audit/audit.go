@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // SchemaID is the value of an event's schema key.

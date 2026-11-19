@@ -12,9 +12,9 @@ import (
 	"regexp"
 	"strings"
 
-	"intentgate/internal/forge/github"
-	"intentgate/internal/policy"
-	"intentgate/internal/report"
+	"github.com/autox-my/intent-gate/internal/forge/github"
+	"github.com/autox-my/intent-gate/internal/policy"
+	"github.com/autox-my/intent-gate/internal/report"
 )
 
 // `publish` sends what `verify --out-dir` wrote to GitHub: one check run, at most one comment

@@ -12,6 +12,6 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/planreview::TestRun_ReportsEachKind"
-  - "intentgate/internal/planreview::TestDisplay_EachKind"
-  - "intentgate/internal/planreview::TestJev_MapsAnswersToFindings"
+  - "github.com/autox-my/intent-gate/internal/planreview::TestRun_ReportsEachKind"
+  - "github.com/autox-my/intent-gate/internal/planreview::TestDisplay_EachKind"
+  - "github.com/autox-my/intent-gate/internal/planreview::TestJev_MapsAnswersToFindings"

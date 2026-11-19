@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/audit::TestAuditEvent_RatificationMethod"
-  - "intentgate/cmd/intentgate::TestVerify_AuditEvent"
+  - "github.com/autox-my/intent-gate/internal/audit::TestAuditEvent_RatificationMethod"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestVerify_AuditEvent"

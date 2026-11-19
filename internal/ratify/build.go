@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // BuildInput is everything Build needs to make a lock. RootIntent is the masked text to bind to;

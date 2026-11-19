@@ -12,5 +12,5 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/lock::TestParse_RejectsUnknownKeys"
-  - "intentgate/internal/lock::TestParse_RejectsUnknownAmendmentKeys"
+  - "github.com/autox-my/intent-gate/internal/lock::TestParse_RejectsUnknownKeys"
+  - "github.com/autox-my/intent-gate/internal/lock::TestParse_RejectsUnknownAmendmentKeys"

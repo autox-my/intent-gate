@@ -16,6 +16,6 @@ pins:
   operator: LE
   unit: s
 tests:
-  - "intentgate/internal/planreview::TestRun_Budget"
-  - "intentgate/cmd/intentgate::TestHook_PlanReviewBudgetCoversPreparation"
-  - "intentgate/cmd/intentgate::TestLock_PlanReviewBudgetCoversPreparation"
+  - "github.com/autox-my/intent-gate/internal/planreview::TestRun_Budget"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_PlanReviewBudgetCoversPreparation"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_PlanReviewBudgetCoversPreparation"

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"intentgate/internal/footprint"
-	"intentgate/internal/ids"
-	"intentgate/internal/lock"
-	"intentgate/internal/ratify"
+	"github.com/autox-my/intent-gate/internal/footprint"
+	"github.com/autox-my/intent-gate/internal/ids"
+	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/ratify"
 )
 
 const (

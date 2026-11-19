@@ -12,4 +12,4 @@ rationale:
   assumptions: []
 relations: []
 tests:
-  - "intentgate/internal/ratify::TestStore_RootIntentVerbatim"
+  - "github.com/autox-my/intent-gate/internal/ratify::TestStore_RootIntentVerbatim"

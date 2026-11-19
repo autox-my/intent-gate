@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"intentgate/internal/gitx"
-	"intentgate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/gitx"
+	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // `intentgate stats` (audit-metrics.md §2, REQ-0041): the footprint-amendment rate and the other
