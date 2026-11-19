@@ -66,6 +66,7 @@ A spec adds no new requirements and restates none. It points at claims and desig
 ### The flow for one slice
 
 1. Orchestrator commits the spec (`docs(specs): S-NN …`).
+   The orchestrator then presents the spec as a plan: approving it in plan mode writes the intent lock (the hook installed by `intentgate init`). Where the hook can't run, `scripts/lock-slice.sh <S-NN>` does the same.
 2. Worker, on branch `feature/s-NN-<slug>` in its own worktree:
    1. `test(<pkg>): … (red at the base)`: the tests, plus only the stubs needed to compile. They must fail on **assertions**, not compile errors. Quote the failure in the report.
    2. `feat(<pkg>): …`: the code that turns them green, plus `tests:` links on the spec's claims.
@@ -79,6 +80,21 @@ A slice that adds, renames or removes a stage artifact, a path or a command name
 ### Rules for every worker
 
 - Read the spec and the files it points to; don't restate them.
+- Don't enter plan mode or call `ExitPlanMode`: the slice was ratified before you started, and a plan approval in your session would write a second lock.
 - Touch only the spec's allowed paths. If a forbidden file must change, stop and report.
 - Never weaken a test, a check or a claim to get green. An exit 3 is not a pass.
 - Report back in at most 10 lines: branch, base commit, commits, files changed, red evidence, `check.sh` verdict, open questions.
+
+<!-- intentgate:begin -->
+## IntentGate
+
+End every plan with exactly one fenced `intentgate` block. Each criterion is a checkable outcome, and its footprint lists the repo-relative globs it may touch. Use this shape exactly (2-space indents, `footprint` inside each criterion):
+
+```intentgate
+criteria:
+  - text: "<a checkable outcome>"
+    footprint: ["<repo-relative glob>"]
+```
+
+Start work in plan mode; approving the plan writes the intent lock.
+<!-- intentgate:end -->

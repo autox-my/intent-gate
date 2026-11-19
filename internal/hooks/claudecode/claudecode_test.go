@@ -123,7 +123,7 @@ func TestRootIntent(t *testing.T) {
 			user("First ask.", nil),
 			assistant("claude-opus-5-5", nil),
 			user([]m{{"type": "text", "text": "Second"}, {"type": "text", "text": "ask."}}, nil),
-		))
+		), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestRootIntent(t *testing.T) {
 			line(m{"type": "attachment", "attachment": m{"type": "x"}}),
 			line(m{"type": "last-prompt", "lastPrompt": "not a turn"}),
 			user("kept two", m{"isMeta": false, "isSidechain": false}),
-		))
+		), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +158,7 @@ func TestRootIntent(t *testing.T) {
 			user("This session is being continued from a previous conversation...", m{"isCompactSummary": true}),
 			user("shown in the transcript only", m{"isVisibleInTranscriptOnly": true}),
 			user("kept two", m{"isCompactSummary": false, "isVisibleInTranscriptOnly": false}),
-		))
+		), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +173,7 @@ func TestRootIntent(t *testing.T) {
 			user([]m{{"type": "text", "text": "[Request interrupted by user for tool use]"}}, nil),
 			user("  [Request interrupted by user]\n", nil),
 			user("I wrote [Request interrupted by user] on purpose", nil),
-		))
+		), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -193,7 +193,7 @@ func TestRootIntent(t *testing.T) {
 			lines = append(lines, user([]m{{"type": "text", "text": "\n" + c[0]}}, nil))
 		}
 		lines = append(lines, user("mentions <command-name> mid-sentence", nil), user("<bash-input>ls</bash-input>", nil))
-		text, _, err := RootIntent(join(lines...))
+		text, _, err := RootIntent(join(lines...), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,7 +209,7 @@ func TestRootIntent(t *testing.T) {
 			user([]m{{"type": "text", "text": "<system-reminder>a</system-reminder>"}, {"type": "text", "text": "Keep it small."}, {"type": "text", "text": "<system-reminder>b</system-reminder>"}}, nil),
 			user("   \n  ", nil),
 			user("A <system-reminder>x</system-reminder> B <system-reminder>y</system-reminder>C", nil),
-		))
+		), "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -218,32 +218,275 @@ func TestRootIntent(t *testing.T) {
 		}
 	})
 	t.Run("draftedBy comes from the last assistant entry, empty when there is none", func(t *testing.T) {
-		_, drafted, err := RootIntent(join(assistant("claude-sonnet-5-5", nil), user("x", nil), assistant("claude-opus-5-5", nil), user("y", nil)))
+		_, drafted, err := RootIntent(join(assistant("claude-sonnet-5-5", nil), user("x", nil), assistant("claude-opus-5-5", nil), user("y", nil)), "")
 		if err != nil || drafted != "claude-code/claude-opus-5-5" {
 			t.Errorf("draftedBy = %q, %v", drafted, err)
 		}
-		_, drafted, err = RootIntent(join(user("x", nil)))
+		_, drafted, err = RootIntent(join(user("x", nil)), "")
 		if err != nil || drafted != "" {
 			t.Errorf("draftedBy = %q, %v; want empty", drafted, err)
 		}
-		_, drafted, err = RootIntent(join(assistant("", nil), user("x", nil)))
+		_, drafted, err = RootIntent(join(assistant("", nil), user("x", nil)), "")
 		if err != nil || drafted != "" {
 			t.Errorf("an assistant entry with no model: draftedBy = %q, %v; want empty", drafted, err)
 		}
 	})
 	t.Run("a malformed line is an error", func(t *testing.T) {
-		if _, _, err := RootIntent(join(user("fine", nil), `{"type": "user", `, user("after", nil))); err == nil {
+		if _, _, err := RootIntent(join(user("fine", nil), `{"type": "user", `, user("after", nil)), ""); err == nil {
 			t.Error("want an error")
 		}
 	})
 	t.Run("blank lines are fine and no turns is empty text", func(t *testing.T) {
-		text, _, err := RootIntent([]byte("\n\n" + user("only", nil) + "\n\n"))
+		text, _, err := RootIntent([]byte("\n\n"+user("only", nil)+"\n\n"), "")
 		if err != nil || text != "only" {
 			t.Errorf("text = %q, %v", text, err)
 		}
-		text, _, err = RootIntent(nil)
+		text, _, err = RootIntent(nil, "")
 		if err != nil || text != "" {
 			t.Errorf("text = %q, %v; want empty", text, err)
 		}
 	})
+}
+
+func toolUse(id, name string) string {
+	return line(m{"type": "assistant", "message": m{"role": "assistant", "model": "claude-opus-5-5",
+		"content": []m{{"type": "tool_use", "id": id, "name": name, "input": m{}}}}})
+}
+
+func toolResult(id string, isError bool) string {
+	return user([]m{{"type": "tool_result", "tool_use_id": id, "content": "x", "is_error": isError}}, nil)
+}
+
+func TestRootIntent_ScopedToCurrentPlan(t *testing.T) {
+	join := func(lines ...string) []byte { return []byte(strings.Join(lines, "\n") + "\n") }
+	const sep = TurnSeparator
+
+	t.Run("only the turns after the last approved earlier plan, around a rejected one", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("ask A", nil),
+			user("ask B", nil),
+			toolUse("toolu_a", "ExitPlanMode"),
+			toolResult("toolu_a", false),
+			user("ask C", nil),
+			toolUse("toolu_r", "ExitPlanMode"),
+			toolResult("toolu_r", true), // rejected: not a boundary
+			user("ask D", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "toolu_cur")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := "ask C" + sep + "ask D"; text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+	t.Run("the last approved plan is the boundary, not the first", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("ask A", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			user("ask B", nil),
+			toolUse("toolu_2", "ExitPlanMode"), toolResult("toolu_2", false),
+			user("ask C", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "toolu_cur")
+		if err != nil || text != "ask C" {
+			t.Errorf("text = %q, %v; want %q", text, err, "ask C")
+		}
+	})
+	t.Run("no earlier approved plan: every turn", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("ask A", nil),
+			toolUse("toolu_r", "ExitPlanMode"), toolResult("toolu_r", true),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "toolu_cur")
+		if err != nil || text != "ask A"+sep+"ask B" {
+			t.Errorf("text = %q, %v", text, err)
+		}
+	})
+	t.Run("the current tool use id is never a boundary, even once its result is in the transcript", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("ask A", nil),
+			toolUse("toolu_cur", "ExitPlanMode"), toolResult("toolu_cur", false),
+			user("ask B", nil),
+		), "toolu_cur")
+		if err != nil || text != "ask A"+sep+"ask B" {
+			t.Errorf("text = %q, %v", text, err)
+		}
+	})
+	t.Run("another tool's approved use is not a boundary", func(t *testing.T) {
+		text, _, err := RootIntent(join(
+			user("ask A", nil),
+			toolUse("toolu_b", "Bash"), toolResult("toolu_b", false),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "toolu_cur")
+		if err != nil || text != "ask A"+sep+"ask B" {
+			t.Errorf("text = %q, %v", text, err)
+		}
+	})
+	t.Run("a sidechain plan is not a boundary", func(t *testing.T) {
+		sub := line(m{"type": "assistant", "isSidechain": true, "message": m{"role": "assistant",
+			"content": []m{{"type": "tool_use", "id": "toolu_s", "name": "ExitPlanMode", "input": m{}}}}})
+		text, _, err := RootIntent(join(
+			user("ask A", nil), sub,
+			user([]m{{"type": "tool_result", "tool_use_id": "toolu_s", "content": "x"}}, m{"isSidechain": true}),
+			user("ask B", nil),
+		), "toolu_cur")
+		if err != nil || text != "ask A"+sep+"ask B" {
+			t.Errorf("text = %q, %v", text, err)
+		}
+	})
+	t.Run("the existing filters still apply after the boundary", func(t *testing.T) {
+		text, drafted, err := RootIntent(join(
+			user("old ask", nil),
+			toolUse("toolu_a", "ExitPlanMode"), toolResult("toolu_a", false),
+			user("meta", m{"isMeta": true}),
+			user("[Request interrupted by user]", nil),
+			user("new ask\n<system-reminder>x</system-reminder>", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "toolu_cur")
+		if err != nil || text != "new ask" || drafted != "claude-code/claude-opus-5-5" {
+			t.Errorf("text = %q, draftedBy = %q, %v", text, drafted, err)
+		}
+	})
+}
+
+func toolUses(ids ...string) string {
+	var blocks []m
+	for _, id := range ids {
+		blocks = append(blocks, m{"type": "tool_use", "id": id, "name": "ExitPlanMode", "input": m{}})
+	}
+	return line(m{"type": "assistant", "message": m{"role": "assistant", "model": "claude-opus-5-5", "content": blocks}})
+}
+
+// toolResultText is a tool_result that is not an error, carrying text (a string, or text blocks).
+func toolResultText(id string, content any) string {
+	return user([]m{{"type": "tool_result", "tool_use_id": id, "content": content, "is_error": false}}, nil)
+}
+
+// Review 1 of S-17: boundary order, denial markers, missing results, empty scope, the scope line.
+func TestRootIntent_ReviewOne(t *testing.T) {
+	join := func(lines ...string) []byte { return []byte(strings.Join(lines, "\n") + "\n") }
+	const sep = TurnSeparator
+	check := func(t *testing.T, transcript []byte, want string, kind ScopeKind, turns int) {
+		t.Helper()
+		s, err := RootIntentScope(transcript, "toolu_cur")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Text != want || s.Kind != kind || s.Turns != turns {
+			t.Errorf("scope = {%q, %s, %d turns}, want {%q, %s, %d turns}", s.Text, s.Kind, s.Turns, want, kind, turns)
+		}
+		if text, _, _ := RootIntent(transcript, "toolu_cur"); text != want {
+			t.Errorf("RootIntent = %q, want %q", text, want)
+		}
+	}
+
+	t.Run("a plan after the current one is not a boundary", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+			user("ask B", nil),
+			toolUse("toolu_later", "ExitPlanMode"), toolResult("toolu_later", false),
+			user("ask C", nil),
+		), "ask A"+sep+"ask B"+sep+"ask C", ScopeWhole, 3)
+	})
+	t.Run("same message: a plan after the current one is ignored", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_0", "ExitPlanMode"), toolResult("toolu_0", false),
+			user("ask B", nil),
+			toolUses("toolu_cur", "toolu_later"), toolResult("toolu_later", false),
+		), "ask B", ScopeSince, 1)
+	})
+	t.Run("same message: a plan before the current one counts", func(t *testing.T) {
+		// Its boundary leaves no turns after it, so the previous plan's turns are reused.
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_0", "ExitPlanMode"), toolResult("toolu_0", false),
+			user("ask B", nil),
+			toolUses("toolu_first", "toolu_cur"), toolResult("toolu_first", false),
+		), "ask B", ScopeReused, 1)
+	})
+	t.Run("a denial marker in a non-error result does not reset", func(t *testing.T) {
+		for _, text := range []string{"The user doesn't want to proceed with this tool use.", "User rejected tool use", "The user REJECTED THE PLAN", "x"} {
+			for _, content := range []any{text, []m{{"type": "text", "text": text}}} {
+				want, kind := "ask A"+sep+"ask B", ScopeWhole
+				if text == "x" { // no marker: approved, a boundary
+					want, kind = "ask B", ScopeSince
+				}
+				check(t, join(
+					user("ask A", nil),
+					toolUse("toolu_d", "ExitPlanMode"), toolResultText("toolu_d", content),
+					user("ask B", nil),
+					toolUse("toolu_cur", "ExitPlanMode"),
+				), want, kind, strings.Count(want, sep)+1)
+			}
+		}
+	})
+	t.Run("an error result with an ordinary text is still a rejection", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_r", "ExitPlanMode"), toolResult("toolu_r", true),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask A"+sep+"ask B", ScopeWhole, 2)
+	})
+	t.Run("a plan with no result is a boundary", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_gone", "ExitPlanMode"),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B", ScopeSince, 1)
+	})
+	t.Run("a result that only comes after the current use does not count", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_late", "ExitPlanMode"),
+			toolUse("toolu_cur", "ExitPlanMode"),
+			toolResult("toolu_late", true),
+			user("ask B", nil),
+		), "ask B", ScopeSince, 1) // the late rejection is not seen: the unanswered use is a boundary
+	})
+	t.Run("no turn since the boundary: the previous plan's turns are reused", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			user("ask B", nil), user("ask C", nil),
+			toolUse("toolu_2", "ExitPlanMode"), toolResult("toolu_2", false),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B"+sep+"ask C", ScopeReused, 2)
+	})
+	t.Run("no turn since the only boundary: the turns before it are reused", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil), user("ask B", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask A"+sep+"ask B", ScopeReused, 2)
+	})
+	t.Run("turns since the boundary: the scope is since", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B", ScopeSince, 1)
+	})
+}
+
+func TestScope_Describe(t *testing.T) {
+	for _, c := range []struct {
+		s    Scope
+		want string
+	}{
+		{Scope{Kind: ScopeSince, Turns: 2}, "root intent: 2 human turn(s) since the previous approved plan"},
+		{Scope{Kind: ScopeReused, Turns: 1}, "root intent: 1 human turn(s) reused from the previous plan (no new turns)"},
+		{Scope{Kind: ScopeWhole, Turns: 3}, "root intent: 3 human turn(s) whole session (no earlier approved plan)"},
+	} {
+		if got := c.s.Describe(); got != c.want {
+			t.Errorf("Describe() = %q, want %q", got, c.want)
+		}
+	}
 }

@@ -93,7 +93,8 @@ func TestHook_PlanReviewNeverBlocks(t *testing.T) {
 				t.Fatalf("post: exit %d, %v", code, obj)
 			}
 			wantSuffix := fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", c.wantStatus, c.wantCounts[0], c.wantCounts[1], c.wantCounts[2])
-			if !strings.HasSuffix(obj["systemMessage"], wantSuffix) {
+			withoutScope, _, _ := strings.Cut(obj["systemMessage"], "\nroot intent: ") // the scope line is the last line
+			if !strings.HasSuffix(withoutScope, wantSuffix) {
 				t.Errorf("post systemMessage = %q, want suffix %q", obj["systemMessage"], wantSuffix)
 			}
 			l, path := e.onlyLock()
@@ -128,7 +129,7 @@ func TestHook_PlanReviewNeverBlocks(t *testing.T) {
 		if l.PlanReview != nil {
 			t.Errorf("plan_review = %+v, want none", l.PlanReview)
 		}
-		if want := "IntentGate: intent lock written: .intent/" + l.ID + ".yml"; obj["systemMessage"] != want {
+		if want := "IntentGate: intent lock written: .intent/" + l.ID + ".yml\nroot intent: 2 human turn(s) whole session (no earlier approved plan)"; obj["systemMessage"] != want {
 			t.Errorf("post systemMessage = %q, want exactly %q", obj["systemMessage"], want)
 		}
 	})
