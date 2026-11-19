@@ -38,11 +38,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: OWNER/intent-gate/action@COMMIT_SHA
+      - uses: autox-my/intent-gate/action@<full commit sha>
 ```
 
 - `fetch-depth: 0` is needed: the check reads the base and the head of the pull request from git.
-- Pin the Action to a full commit SHA, as the Action itself does with the actions it uses.
+- Pin the Action to a full commit SHA, as the Action itself does with the actions it uses: replace `<full commit sha>` with the 40-character commit you reviewed, not a branch or tag.
 - Keep the `concurrency:` block. One check run and one comment per pull request are guaranteed
   only with it: two runs that overlap can each create a comment. The Action also deletes duplicate
   comments of its own after it creates one, but it does not rely on that alone.
