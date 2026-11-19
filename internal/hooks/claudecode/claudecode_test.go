@@ -499,7 +499,7 @@ func TestRootIntent_RatifiedCardIsBoundary(t *testing.T) {
 		b, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant", "model": "claude-opus-5-5",
 			"content": []any{map[string]any{"type": "tool_use", "id": id, "name": "AskUserQuestion", "input": map[string]any{
 				"questions": []any{map[string]any{"question": q, "header": header, "multiSelect": false,
-					"options": []any{map[string]any{"label": "Ratify", "description": "d"}, map[string]any{"label": "Not yet", "description": "d"}}}}}}}}})
+					"options": []any{map[string]any{"label": "Ratify", "description": "Write the intent lock for this plan"}, map[string]any{"label": "Not yet", "description": "No lock"}}}}}}}}})
 		return string(b)
 	}
 	// result is Claude Code's answered AskUserQuestion: the tool_result text, and the structured

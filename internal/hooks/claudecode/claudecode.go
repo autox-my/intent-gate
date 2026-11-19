@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -15,8 +16,16 @@ const TurnSeparator = "\n\n---\n\n"
 
 // Question is one question of an AskUserQuestion tool input.
 type Question struct {
-	Header   string
-	Question string
+	Header      string
+	Question    string
+	Options     []Option
+	MultiSelect bool
+}
+
+// Option is one option of a question.
+type Option struct {
+	Label       string
+	Description string
 }
 
 // Input is the part of a PreToolUse or PostToolUse hook input the ExitPlanMode and AskUserQuestion
@@ -68,8 +77,13 @@ func planOf(raw json.RawMessage) string {
 func questionsOf(raw json.RawMessage) []Question {
 	var v struct {
 		Questions []struct {
-			Header   string `json:"header"`
-			Question string `json:"question"`
+			Header      string `json:"header"`
+			Question    string `json:"question"`
+			MultiSelect bool   `json:"multiSelect"`
+			Options     []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
 		} `json:"questions"`
 	}
 	if json.Unmarshal(raw, &v) != nil {
@@ -77,7 +91,11 @@ func questionsOf(raw json.RawMessage) []Question {
 	}
 	var qs []Question
 	for _, q := range v.Questions {
-		qs = append(qs, Question{Header: q.Header, Question: q.Question})
+		question := Question{Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
+		for _, o := range q.Options {
+			question.Options = append(question.Options, Option{Label: o.Label, Description: o.Description})
+		}
+		qs = append(qs, question)
 	}
 	return qs
 }
@@ -220,10 +238,18 @@ type Card struct {
 	SHA256   string
 }
 
-// ParseCard recognises a ratify card: exactly one question, header exactly RatifyHeader, text of the
-// ratify form. Anything else is not a card and false.
+// ratifyOptions are the card's options, in order: what RenderCard prints and ParseCard requires.
+var ratifyOptions = []Option{
+	{Label: RatifyLabel, Description: "Write the intent lock for this plan"},
+	{Label: NotYetLabel, Description: "No lock"},
+}
+
+// ParseCard recognises a ratify card: exactly what RenderCard prints, that is exactly one question,
+// header exactly RatifyHeader, text of the ratify form, not multi-select and exactly the options
+// Ratify and Not yet with their fixed descriptions, in that order. Anything else is not a card and
+// false.
 func ParseCard(qs []Question) (Card, bool) {
-	if len(qs) != 1 || qs[0].Header != RatifyHeader {
+	if len(qs) != 1 || qs[0].Header != RatifyHeader || qs[0].MultiSelect || !slices.Equal(qs[0].Options, ratifyOptions) {
 		return Card{}, false
 	}
 	m := ratifyQuestion.FindStringSubmatch(qs[0].Question)
@@ -244,13 +270,16 @@ func RenderCard(path, sha256hex string) []byte {
 		Label       string `json:"label"`
 		Description string `json:"description"`
 	}
+	options := make([]option, len(ratifyOptions))
+	for i, o := range ratifyOptions {
+		options[i] = option(o)
+	}
 	card := struct {
 		Header      string   `json:"header"`
 		Question    string   `json:"question"`
 		Options     []option `json:"options"`
 		MultiSelect bool     `json:"multiSelect"`
-	}{RatifyHeader, RatifyQuestionText(path, sha256hex),
-		[]option{{RatifyLabel, "Write the intent lock for this plan"}, {NotYetLabel, "No lock"}}, false}
+	}{RatifyHeader, RatifyQuestionText(path, sha256hex), options, false}
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
