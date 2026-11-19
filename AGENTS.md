@@ -80,6 +80,7 @@ A slice that adds, renames or removes a stage artifact, a path or a command name
 ### Rules for every worker
 
 - Read the spec and the files it points to; don't restate them.
+- Don't enter plan mode or call `ExitPlanMode`: the slice was ratified before you started, and a plan approval in your session would write a second lock.
 - Touch only the spec's allowed paths. If a forbidden file must change, stop and report.
 - Never weaken a test, a check or a claim to get green. An exit 3 is not a pass.
 - Report back in at most 10 lines: branch, base commit, commits, files changed, red evidence, `check.sh` verdict, open questions.
