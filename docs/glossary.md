@@ -36,3 +36,21 @@ two ways. Agreed 2026-11-18.
 | **gate** | `req gate`, the release gate over claims and their linked tests. |
 | **pin** | A `pins:` assertion of what a claim's statement must parse to. |
 | **diff** | `req diff`, the meaning change between two revisions. |
+
+## Artifacts: where each lives and which stage writes it
+
+Stages are those of `docs/process/sdlc-map.md`. "Intent" and "spec" each mean more than one thing, so
+each meaning has its own row.
+
+| Term | Lives in | Written at stage |
+|---|---|---|
+| **intent** (project proposal) | `docs/intent-gate-proposal-v2.md` and the two reviews: once, for the whole project. | 1 INTENT |
+| **intent** (root intent of a change) | The prompt, issue or pasted request. Kept masked in `~/.intentgate` on the ratifier's machine; only its hash is committed. | Product loop: the human's request, before plan approval |
+| **intent** (playbook `intent.md`) | Not used here: there is no per-change `intent.md`. The nearest things are the slice spec's criteria and, in the product, the root intent. | none (Phase 1 may add it) |
+| **claim** | `claims/REQ-NNNN.yml`, one requirement per file (req's sense). | 2 CLAIMS |
+| **design element** | `docs/design/*.md`, linked to claims by `req satisfy`. | 3 DESIGN |
+| **ADR** | `docs/adr/NNNN-*.md`: why a hard-to-reverse choice was made. | 3 DESIGN |
+| **slice spec** | `docs/specs/S-NN-*.md`: the claim ids, allowed paths and red-first tests for one slice. Closest to the playbook's `plan.md`. | 4 SPEC |
+| **plan** | The agent's plan, approved in plan mode, ending in an `intentgate` block. In this repo the slice spec plays that part. | Product loop: plan mode, before code |
+| **intent lock** | `.intent/<id>.yml` on the PR branch: criteria, footprints, hashes, ratification record. A slice spec's `intentgate` block can be locked with `intentgate lock --from-plan`. | Product loop: written by the hook or `lock`, at human ratification |
+| **Baseline** | `baselines/phase0.json` and its signature: the signed set of claim addresses a release is checked against. Signing is the human's act. | 8 MERGE (release) |

@@ -1,0 +1,197 @@
+<title>IntentGate SDLC Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: one reading column; three sections (stage map, artifact map, lifecycle sequence), diagrams in scrollable frames. */
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --ink:#1e2320; --muted:#5e6661; --rule:#dcdcd6;
+  --clay:#c8643f; --clay-soft:#f7e6de; --night:#1b1f1d; --ok:#2f7d4f; --ok-soft:#e2f1e7; --gap:#9a5b12; --gap-soft:#f6ead8;
+  --display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141716; --surface:#1b1f1d; --ink:#e5e8e5; --muted:#9ca39f; --rule:#2e3431;
+  --clay:#e48a65; --clay-soft:#3a251c; --night:#0f1211; --ok:#71c595; --ok-soft:#17291e; --gap:#e3a95f; --gap-soft:#2f2415; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141716; --surface:#1b1f1d; --ink:#e5e8e5; --muted:#9ca39f; --rule:#2e3431;
+  --clay:#e48a65; --clay-soft:#3a251c; --night:#0f1211; --ok:#71c595; --ok-soft:#17291e; --gap:#e3a95f; --gap-soft:#2f2415; color-scheme:dark}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1040px;margin:0 auto;padding-block:32px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:28px}
+header{display:flex;flex-direction:column;gap:8px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+h1{font-family:var(--display);font-weight:600;font-size:clamp(30px,4.4vw,42px);line-height:1.05;margin:0;text-wrap:balance}
+h2{font-family:var(--display);font-weight:600;font-size:24px;margin:0;text-wrap:balance}
+h3{font-family:var(--mono);font-weight:500;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0;max-width:68ch}
+.lede{color:var(--muted)}
+section{display:flex;flex-direction:column;gap:14px}
+.frame{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:16px;overflow-x:auto}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.sw.clay{background:var(--clay)} .sw.night{background:var(--night);border:1px solid var(--rule)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:13.5px}
+th,td{text-align:left;vertical-align:top;padding:9px 12px;border-bottom:1px solid var(--rule)}
+th{font-family:var(--mono);font-weight:500;font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.gap{background:var(--gap-soft);color:var(--gap)}
+.note{font-size:13px;color:var(--muted)}
+.stagemap{display:grid;grid-template-columns:repeat(8,minmax(108px,1fr));gap:10px 10px;min-width:900px;align-items:stretch}
+.st,.st-entry{border-radius:6px;padding:10px 11px;display:flex;flex-direction:column;gap:2px;font-size:13.5px;line-height:1.3;min-width:0}
+.st b,.st-entry b{font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.08em}
+.st span,.st-entry span{font-family:var(--mono);font-size:11px;opacity:.8;overflow-wrap:anywhere}
+.st-entry{background:var(--clay);color:#1b1f1d}
+.st{background:var(--night);color:#f2f2ee;position:relative;grid-row:3}
+.st i{position:absolute;top:8px;right:10px;font-style:normal;font-family:var(--mono);font-size:11px;opacity:.55}
+.st:not(.last)::after{content:"→";position:absolute;right:-12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;z-index:1}
+.st-entry{grid-row:1}
+.st-down{grid-row:2;text-align:center;color:var(--muted);font-size:14px;line-height:1}
+.st-loop{grid-row:4;border:1px dashed var(--muted);border-radius:6px;padding:8px 12px;font-size:13px;color:var(--muted)}
+.st-loop span{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--ink);margin-right:8px}
+.seqframe svg{display:block;min-width:960px;width:100%;height:auto;font-family:var(--body)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">IntentGate · compared with the AI-native SDLC playbook</div>
+    <h1>IntentGate SDLC map</h1>
+    <p class="lede">Two loops run here. The <strong>build loop</strong> is how this repository makes IntentGate (req, specs, workers, reviewers). The <strong>product loop</strong> is what IntentGate does for a team using it (lock, PR check, amend). The playbook describes one loop; we have both, and some words mean different things in each.</p>
+  </header>
+
+  <section id="stages">
+    <h2>1 · Our stages, drawn like the playbook's</h2>
+    <p>One row per kind: orange boxes are where work can start, dark boxes are the pipeline. A slice moves left to right; maintenance feeds the next intent.</p>
+    <div class="legend"><span><span class="sw clay"></span>start anywhere: feeds the stage below it</span><span><span class="sw night"></span>the pipeline, left to right; each stage commits what the next one reads</span></div>
+    <div class="frame"><div class="stagemap">
+      <div class="st-entry" style="grid-column:1"><b>PLAN</b>Proposal + reviews<span>docs/*.md</span></div>
+      <div class="st-entry" style="grid-column:5"><b>TEST</b>Gate script<span>scripts/check.sh</span></div>
+      <div class="st-entry" style="grid-column:6"><b>BUILD</b>Plan mode<span>+ AGENTS.md / CLAUDE.md</span></div>
+      <div class="st-entry" style="grid-column:7"><b>DEPLOY</b>IntentGate hooks + Action<span>lock · PR check</span></div>
+
+      <div class="st-down" style="grid-column:1">↓</div><div class="st-down" style="grid-column:5">↓</div><div class="st-down" style="grid-column:6">↓</div><div class="st-down" style="grid-column:7">↓</div>
+
+      <div class="st" style="grid-column:1"><i>1</i><b>INTENT</b>What and why<span>proposal, reviews</span></div>
+      <div class="st" style="grid-column:2"><i>2</i><b>CLAIMS</b>What must hold<span>claims/*.yml · req canon</span></div>
+      <div class="st" style="grid-column:3"><i>3</i><b>DESIGN</b>How and why<span>docs/design · ADRs · req satisfy</span></div>
+      <div class="st" style="grid-column:4"><i>4</i><b>SPEC</b>One slice<span>docs/specs/S-NN: claim ids + allowed paths</span></div>
+      <div class="st" style="grid-column:5"><i>5</i><b>TEST</b>Red first<span>failing tests + tests: links</span></div>
+      <div class="st" style="grid-column:6"><i>6</i><b>CODE</b>Green<span>worker in a worktree</span></div>
+      <div class="st" style="grid-column:7"><i>7</i><b>REVIEW</b>Check the diff<span>path check · DeepSeek · PR check</span></div>
+      <div class="st last" style="grid-column:8"><i>8</i><b>MERGE</b>Ship<span>CI · req check · Baseline · human merge</span></div>
+
+      <div class="st-loop" style="grid-column:1 / span 8"><span>↺ MAINTAIN</span> audit events · intentgate stats · handoffs feed the next intent (production signals: not yet)</div>
+    </div></div>
+    <div class="two">
+      <div class="card"><h3>Same as the playbook</h3><ul>
+        <li>Every stage commits an artifact the next one reads: claim → design → spec → test → code → review → merge.</li>
+        <li>Plan approval is the gate before code (the hook writes the lock there).</li>
+        <li>Hooks are the deterministic layer; skills and prompts stay advisory.</li>
+        <li>PR review checks the diff against the plan (footprint check).</li>
+      </ul></div>
+      <div class="card"><h3>Different</h3><ul>
+        <li>Requirements are a <em>persistent</em> corpus (41 claims) with addresses and a signed Baseline; the playbook's spec.md is per change.</li>
+        <li>A second model family reviews every slice before the human sees it.</li>
+        <li>No per-change <code>intent.md</code>: the build loop starts from a spec the orchestrator writes; the product keeps the root intent private.</li>
+        <li>No production signal writes the next intent yet.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="artifacts">
+    <h2>2 · Which artifact answers which question</h2>
+    <p>The playbook's chain is <code>intent.md → spec.md → plan.md → diff → review findings</code>. Here is where each lands for us, in both loops.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Playbook</th><th>Build loop (this repo)</th><th>Product loop (a team using IntentGate)</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td><code>intent.md</code><br><span class="note">what, why, constraints; product owner accepts</span></td><td><code>docs/intent-gate-proposal-v2.md</code> and the reviews: once, for the whole project. No per-slice intent file.</td><td>The root intent: the prompt, issue or pasted request. Masked, kept on the ratifier's machine; only its hash is committed.</td><td><span class="pill gap">gap</span></td></tr>
+        <tr><td><code>spec.md</code><br><span class="note">requirements and design</span></td><td><code>claims/</code> (what must hold), <code>docs/design/</code> (how), <code>docs/adr/</code> (why). <code>docs/requirements.md</code> was the adoption source and is frozen.</td><td>Not IntentGate's job; the team's own docs.</td><td><span class="pill gap">overlap</span></td></tr>
+        <tr><td><code>plan.md</code><br><span class="note">accepted in plan mode</span></td><td><code>docs/specs/S-NN-*.md</code>: claim ids, allowed paths, red-first tests. Committed before a worker starts.</td><td>The approved plan with its <code>intentgate</code> block, turned into <code>.intent/&lt;id&gt;.yml</code> (criteria + footprint + ratification).</td><td><span class="pill ok">covered</span></td></tr>
+        <tr><td>diff vs plan</td><td>Orchestrator runs <code>git diff base...branch --name-only</code> against the spec's allowed paths.</td><td>Footprint check in <code>intentgate verify</code>, with an <code>amend</code> command per finding.</td><td><span class="pill ok">covered</span></td></tr>
+        <tr><td>review findings</td><td>DeepSeek review, turned into a binding "Review 1 amendments" bullet in the spec.</td><td>One check run, at most one comment, SARIF.</td><td><span class="pill ok">covered</span></td></tr>
+        <tr><td>CI/CD</td><td><code>scripts/check.sh</code>: gofmt, vet, staticcheck, tests, <code>req check</code>, Baseline verify; <code>req diff</code> on PRs.</td><td>The composite Action on <code>pull_request</code>.</td><td><span class="pill ok">covered</span></td></tr>
+        <tr><td>closing the loop</td><td>Handoffs, coverage explorer.</td><td>Audit events, <code>intentgate stats</code> (amendment rate).</td><td><span class="pill gap">partial</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="two">
+      <div class="card"><h3>Overlaps and double meanings</h3><ul>
+        <li><strong>"intent"</strong> means three things: the project proposal, a team's root intent, and the playbook's reviewed <code>intent.md</code>.</li>
+        <li><strong>"spec"</strong> means our slice spec (closer to the playbook's <em>plan.md</em>), the playbook's <em>spec.md</em> (closer to our claims + design), and req's <code>docs/spec.md</code> projection, which we don't generate.</li>
+        <li><strong><code>requirements.md</code> vs <code>claims/</code></strong>: same content, but only the claims are live. The old file still reads like a source of truth.</li>
+        <li><strong>Slice spec vs intent lock</strong>: AGENTS.md already calls a spec "this project's intent lock, written by hand". We don't yet turn it into a real <code>.intent/</code> lock, so our own PRs show "no intent lock".</li>
+      </ul></div>
+      <div class="card"><h3>What would make the flow clear</h3><ul>
+        <li>Mark <code>docs/requirements.md</code> as archived (header pointing to <code>claims/</code>).</li>
+        <li>Add a glossary row per artifact: intent, claim, design, slice spec, plan, lock.</li>
+        <li>Dogfood: each slice spec ends with an <code>intentgate</code> block (claims as criteria, allowed paths as footprint) and gets locked with <code>intentgate lock --from-plan</code>. Then the PR check does the orchestrator's path check.</li>
+        <li>Phase 1 ADR: a committed, product-owner-accepted <code>intent.md</code> as a lock source.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="lifecycle">
+    <h2>3 · End-to-end lifecycle and data flow</h2>
+    <p>The product loop for one change, from a prompt to a merged PR, as it runs after S-14. The CLI paths (<code>lock --from-plan</code>, <code>lock --issue</code>) replace the two hook steps with a terminal <code>yes</code>.</p>
+    <div class="frame seqframe"><svg id="seq" role="img" aria-label="Sequence diagram of the IntentGate lifecycle"></svg></div>
+    <p class="note">What is committed: the lock (criteria, footprints, hashes, counts). What stays local: the root intent text and the pending record. What leaves the machine: masked text to Jev during ratification; the lock and check results to GitHub.</p>
+  </section>
+</div>
+
+<script>
+(function(){
+  const lanes=[["H","Human"],["A","Agent","Claude Code"],["K","intentgate hook"],["J","Jev","TypeSafe"],["S","Local store","~/.intentgate"],["R","PR branch",".intent/"],["G","GitHub"],["V","Action","verify + publish"]];
+  const steps=[
+    ["H","A","request (root intent), in plan mode"],
+    ["A","A","drafts plan ending in an intentgate block"],
+    ["A","K","PreToolUse ExitPlanMode: plan, transcript path"],
+    ["K","K","reads human turns, masks secrets, drafts criteria"],
+    ["K","J","one request: a yes/no question per item (5 s budget)"],
+    ["J","K","probabilities → omissions, additions, weakenings",1],
+    ["K","S","pending record: time, plan hash, counts (no text)"],
+    ["A","H","plan approval prompt"],
+    ["H","A","approve"],
+    ["A","K","PostToolUse ExitPlanMode: approved plan"],
+    ["K","S","root-intent.md (masked, 0600) · audit.jsonl"],
+    ["K","R",".intent/ID.yml: criteria, footprints, hashes, plan review counts"],
+    ["K","H","messages: criteria, then “intent lock written (plan review …)”",1],
+    ["A","R","code changes"],
+    ["H","G","opens the pull request"],
+    ["G","V","pull_request event"],
+    ["V","R","git diff base...head · locks, config, commit time at head"],
+    ["V","V","lifecycle (hash, retarget, 14 days) → footprint check"],
+    ["V","G","one check run · ≤ 1 comment · SARIF · audit.json  (no lock → neutral, no comment)"],
+    ["H","R","if a finding was intended: intentgate amend … (terminal yes) → push, re-check",0,"opt"],
+    ["H","G","merge (advisory only, never blocked)"]
+  ];
+  const svg=document.getElementById("seq"), NS="http://www.w3.org/2000/svg";
+  const W=1000, top=70, row=40, lx=i=>70+i*((W-140)/(lanes.length-1)), H=top+steps.length*row+40;
+  svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  const el=(t,a,txt)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e};
+  const defs=el("defs",{});const m=document.createElementNS(NS,"marker");
+  Object.entries({id:"ah",viewBox:"0 0 10 10",refX:"9",refY:"5",markerWidth:"7",markerHeight:"7",orient:"auto-start-reverse"}).forEach(([k,v])=>m.setAttribute(k,v));
+  const p=document.createElementNS(NS,"path");p.setAttribute("d","M0,0 L10,5 L0,10 z");p.setAttribute("fill","var(--ink)");m.appendChild(p);defs.appendChild(m);
+  const idx=Object.fromEntries(lanes.map((l,i)=>[l[0],i]));
+  lanes.forEach((l,i)=>{const x=lx(i);
+    el("rect",{x:x-56,y:8,width:112,height:44,rx:6,fill:i===2?"var(--clay)":"var(--night)"});
+    el("text",{x,y:l[2]?27:35,"text-anchor":"middle","font-size":"12.5","font-weight":"600",fill:i===2?"#1b1f1d":"#f2f2ee"},l[1]);
+    if(l[2])el("text",{x,y:43,"text-anchor":"middle","font-size":"10.5","font-family":"var(--mono)",fill:i===2?"#1b1f1d":"#c9ccc8"},l[2]);
+    el("line",{x1:x,y1:52,x2:x,y2:H-12,stroke:"var(--rule)","stroke-width":"1.5","stroke-dasharray":"4 4"});
+  });
+  steps.forEach((s,n)=>{const y=top+n*row+row/2, a=lx(idx[s[0]]), b=lx(idx[s[1]]);
+    if(s[4]==="opt")el("rect",{x:20,y:y-row/2+3,width:W-40,height:row-6,rx:5,fill:"var(--gap-soft)",stroke:"none"});
+    el("text",{x:12,y:y+4,"font-size":"10.5","font-family":"var(--mono)",fill:"var(--muted)"},String(n+1));
+    if(a===b){el("path",{d:`M${a},${y-9} h26 v14 h-24`,fill:"none",stroke:"var(--ink)","stroke-width":"1.3","marker-end":"url(#ah)"});
+      const right=a>W*0.6;el("text",{x:right?a-8:a+32,y:y+3,"text-anchor":right?"end":"start","font-size":"11.5",fill:"var(--ink)"},s[2]);}
+    else{el("line",{x1:a,y1:y+4,x2:b+(b>a?-3:3),y2:y+4,stroke:"var(--ink)","stroke-width":"1.3","stroke-dasharray":s[3]?"5 4":"","marker-end":"url(#ah)"});
+      const t=el("text",{x:(a+b)/2,y:y-3,"text-anchor":"middle","font-size":"11.5",fill:"var(--ink)"},s[2]);
+      const w=t.getComputedTextLength?t.getComputedTextLength():0, span=Math.abs(b-a);
+      if(w>span-10){t.setAttribute("text-anchor",b>a?"start":"end");t.setAttribute("x",String(a+(b>a?6:-6)));}
+    }
+  });
+})();
+</script>

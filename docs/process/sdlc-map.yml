@@ -1,0 +1,225 @@
+# The IntentGate SDLC map: the source of truth for docs/process/sdlc-map.md and req-views/sdlc-map.html.
+# Hand-edited. Render with `python3 -I scripts/sdlc-map.py`; `scripts/check.sh` runs `--check`, which fails when
+# the committed Markdown is stale, a `paths:` entry matches nothing in the repo, or a `commands:` entry is not an
+# `intentgate` subcommand. A slice that adds, renames or removes a stage artifact, a path or a command named here
+# updates this file in the same slice.
+#
+# Subset of YAML read by scripts/sdlc-map.py: block mappings and sequences, flow lists of scalars, double- or
+# single-quoted strings, true/false/integers, `#` comments. Inline marks in artifacts, notes and page text:
+# `code`, **bold**, *italic*.
+
+page:
+  eyebrow: "IntentGate · compared with the AI-native SDLC playbook"
+  title: "IntentGate SDLC map"
+  lede: "Two loops run here. The **build loop** is how this repository makes IntentGate (req, specs, workers, reviewers). The **product loop** is what IntentGate does for a team using it (lock, PR check, amend). The playbook describes one loop; we have both, and some words mean different things in each."
+  stages_title: "1 · Our stages, drawn like the playbook's"
+  stages_text: "One row per kind: orange boxes are where work can start, dark boxes are the pipeline. A slice moves left to right; maintenance feeds the next intent."
+  artifacts_title: "2 · Which artifact answers which question"
+  artifacts_text: "The playbook's chain is `intent.md → spec.md → plan.md → diff → review findings`. Here is where each lands for us, in both loops."
+  lifecycle_title: "3 · End-to-end lifecycle and data flow"
+  lifecycle_text: "The product loop for one change, from a prompt to a merged PR, as it runs after S-14. The CLI paths (`lock --from-plan`, `lock --issue`) replace the two hook steps with a terminal `yes`."
+  lifecycle_note: "What is committed: the lock (criteria, footprints, hashes, counts). What stays local: the root intent text and the pending record. What leaves the machine: masked text to Jev during ratification; the lock and check results to GitHub."
+
+# Where work can start. `feeds` is the stage the box sits above.
+entries:
+  - kind: PLAN
+    title: "Proposal + reviews"
+    detail: "docs/*.md"
+    feeds: intent
+    paths: ["docs/intent-gate-proposal-v2.md"]
+  - kind: TEST
+    title: "Gate script"
+    detail: "scripts/check.sh"
+    feeds: test
+    paths: ["scripts/check.sh"]
+  - kind: BUILD
+    title: "Plan mode"
+    detail: "+ AGENTS.md / CLAUDE.md"
+    feeds: code
+    paths: ["AGENTS.md", "CLAUDE.md"]
+  - kind: DEPLOY
+    title: "IntentGate hooks + Action"
+    detail: "lock · PR check"
+    feeds: review
+    paths: ["action/action.yml"]
+    commands: ["hook claude-code print-config", "lock --from-plan", "verify"]
+
+# The pipeline, left to right.
+stages:
+  - id: intent
+    kind: INTENT
+    title: "Intent"
+    question: "What and why"
+    detail: "proposal, reviews"
+    paths: ["docs/intent-gate-proposal-v2.md"]
+  - id: claims
+    kind: CLAIMS
+    title: "Claims"
+    question: "What must hold"
+    detail: "claims/*.yml · req canon"
+    paths: ["claims/*.yml"]
+  - id: design
+    kind: DESIGN
+    title: "Design"
+    question: "How and why"
+    detail: "docs/design · ADRs · req satisfy"
+    paths: ["docs/design/*.md", "docs/adr/*.md"]
+  - id: spec
+    kind: SPEC
+    title: "Spec"
+    question: "One slice"
+    detail: "docs/specs/S-NN: claim ids + allowed paths"
+    paths: ["docs/specs/S-*.md", "docs/specs/README.md"]
+  - id: test
+    kind: TEST
+    title: "Test"
+    question: "Red first"
+    detail: "failing tests + tests: links"
+    paths: ["scripts/check.sh"]
+  - id: code
+    kind: CODE
+    title: "Code"
+    question: "Green"
+    detail: "worker in a worktree"
+    paths: ["cmd/intentgate/main.go"]
+  - id: review
+    kind: REVIEW
+    title: "Review"
+    question: "Check the diff"
+    detail: "path check · DeepSeek · PR check"
+    paths: [".github/workflows/intentgate.yml"]
+    commands: ["verify"]
+  - id: merge
+    kind: MERGE
+    title: "Merge"
+    question: "Ship"
+    detail: "CI · req check · Baseline · human merge"
+    paths: [".github/workflows/check.yml", "baselines/phase0.json"]
+
+maintain: "audit events · intentgate stats · handoffs feed the next intent (production signals: not yet)"
+
+# Cards under the stage map and under the artifact table. `section` is stages or artifacts.
+notes:
+  - section: stages
+    title: "Same as the playbook"
+    items:
+      - "Every stage commits an artifact the next one reads: claim → design → spec → test → code → review → merge."
+      - "Plan approval is the gate before code (the hook writes the lock there)."
+      - "Hooks are the deterministic layer; skills and prompts stay advisory."
+      - "PR review checks the diff against the plan (footprint check)."
+  - section: stages
+    title: "Different"
+    items:
+      - "Requirements are a *persistent* corpus (`claims/`) with addresses and a signed Baseline; the playbook's spec.md is per change."
+      - "A second model family reviews every slice before the human sees it."
+      - "No per-change `intent.md`: the build loop starts from a spec the orchestrator writes; the product keeps the root intent private."
+      - "No production signal writes the next intent yet."
+  - section: artifacts
+    title: "Overlaps and double meanings"
+    items:
+      - "**\"intent\"** means three things: the project proposal, a team's root intent, and the playbook's reviewed `intent.md`."
+      - "**\"spec\"** means our slice spec (closer to the playbook's *plan.md*), the playbook's *spec.md* (closer to our claims + design), and req's `docs/spec.md` projection, which we don't generate."
+      - "**`requirements.md` vs `claims/`**: same content, but only the claims are live. The old file now carries an archive header pointing to `claims/`."
+      - "**Slice spec vs intent lock**: AGENTS.md already calls a spec \"this project's intent lock, written by hand\". A slice spec now ends with an `intentgate` block, so a human may turn it into a real `.intent/` lock."
+  - section: artifacts
+    title: "What would make the flow clear"
+    items:
+      - "Done in S-15: `docs/requirements.md` is marked as archived (header pointing to `claims/`)."
+      - "Done in S-15: a glossary row per artifact: intent, claim, design element, ADR, slice spec, plan, intent lock, Baseline."
+      - "Dogfood: each slice spec ends with an `intentgate` block (claims as criteria, allowed paths as footprint) and gets locked with `intentgate lock --from-plan`. Then the PR check does the orchestrator's path check. The template has the block; locking is the human's act."
+      - "Phase 1 ADR: a committed, product-owner-accepted `intent.md` as a lock source."
+
+# Rows of the artifact map. state: covered | partial | gap | overlap.
+artifacts:
+  - playbook: "`intent.md`"
+    note: "what, why, constraints; product owner accepts"
+    build: "`docs/intent-gate-proposal-v2.md` and the reviews: once, for the whole project. No per-slice intent file."
+    product: "The root intent: the prompt, issue or pasted request. Masked, kept on the ratifier's machine; only its hash is committed."
+    state: gap
+    paths: ["docs/intent-gate-proposal-v2.md"]
+  - playbook: "`spec.md`"
+    note: "requirements and design"
+    build: "`claims/` (what must hold), `docs/design/` (how), `docs/adr/` (why). `docs/requirements.md` was the adoption source and is frozen."
+    product: "Not IntentGate's job; the team's own docs."
+    state: overlap
+    paths: ["claims/*.yml", "docs/design/*.md", "docs/adr/*.md", "docs/requirements.md"]
+  - playbook: "`plan.md`"
+    note: "accepted in plan mode"
+    build: "`docs/specs/S-NN-*.md`: claim ids, allowed paths, red-first tests. Committed before a worker starts."
+    product: "The approved plan with its `intentgate` block, turned into `.intent/<id>.yml` (criteria + footprint + ratification)."
+    state: covered
+    paths: ["docs/specs/S-*.md"]
+    commands: ["lock --from-plan"]
+  - playbook: "diff vs plan"
+    build: "Orchestrator runs `git diff base...branch --name-only` against the spec's allowed paths."
+    product: "Footprint check in `intentgate verify`, with an `amend` command per finding."
+    state: covered
+    commands: ["verify", "amend"]
+  - playbook: "review findings"
+    build: "DeepSeek review, turned into a binding \"Review 1 amendments\" bullet in the spec."
+    product: "One check run, at most one comment, SARIF."
+    state: covered
+  - playbook: "CI/CD"
+    build: "`scripts/check.sh`: gofmt, vet, staticcheck, tests, `req check`, Baseline verify; `req diff` on PRs."
+    product: "The composite Action on `pull_request`."
+    state: covered
+    paths: ["scripts/check.sh", "action/action.yml", ".github/workflows/check.yml"]
+  - playbook: "closing the loop"
+    build: "Handoffs, coverage explorer."
+    product: "Audit events, `intentgate stats` (amendment rate)."
+    state: partial
+    paths: ["docs/handoffs/*", "scripts/coverage-explorer.py"]
+
+# The product loop for one change: lanes are the participants, steps the messages in order.
+lifecycle:
+  lanes:
+    - id: H
+      name: "Human"
+    - id: A
+      name: "Agent"
+      sub: "Claude Code"
+    - id: K
+      name: "intentgate hook"
+      commands: ["hook claude-code pre", "hook claude-code post"]
+    - id: J
+      name: "Jev"
+      sub: "TypeSafe"
+    - id: S
+      name: "Local store"
+      sub: "~/.intentgate"
+    - id: R
+      name: "PR branch"
+      sub: ".intent/"
+    - id: G
+      name: "GitHub"
+    - id: V
+      name: "Action"
+      sub: "verify + publish"
+      paths: ["action/action.yml"]
+      commands: ["verify"]
+  steps:
+    - {from: H, to: A, text: "request (root intent), in plan mode"}
+    - {from: A, to: A, text: "drafts plan ending in an intentgate block"}
+    - {from: A, to: K, text: "PreToolUse ExitPlanMode: plan, transcript path"}
+    - {from: K, to: K, text: "reads human turns, masks secrets, drafts criteria"}
+    - {from: K, to: J, text: "one request: a yes/no question per item (5 s budget)"}
+    - {from: J, to: K, text: "probabilities → omissions, additions, weakenings", reply: true}
+    - {from: K, to: S, text: "pending record: time, plan hash, counts (no text)"}
+    - {from: A, to: H, text: "plan approval prompt"}
+    - {from: H, to: A, text: "approve"}
+    - {from: A, to: K, text: "PostToolUse ExitPlanMode: approved plan"}
+    - {from: K, to: S, text: "root-intent.md (masked, 0600) · audit.jsonl"}
+    - {from: K, to: R, text: ".intent/ID.yml: criteria, footprints, hashes, plan review counts"}
+    - {from: K, to: H, text: "messages: criteria, then “intent lock written (plan review …)”", reply: true}
+    - {from: A, to: R, text: "code changes"}
+    - {from: H, to: G, text: "opens the pull request"}
+    - {from: G, to: V, text: "pull_request event"}
+    - {from: V, to: R, text: "git diff base...head · locks, config, commit time at head"}
+    - {from: V, to: V, text: "lifecycle (hash, retarget, 14 days) → footprint check"}
+    - {from: V, to: G, text: "one check run · ≤ 1 comment · SARIF · audit.json  (no lock → neutral, no comment)"}
+    - from: H
+      to: R
+      text: "if a finding was intended: intentgate amend … (terminal yes) → push, re-check"
+      optional: true
+      commands: ["amend"]
+    - {from: H, to: G, text: "merge (advisory only, never blocked)"}

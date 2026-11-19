@@ -33,6 +33,12 @@ if need go; then
   step tests go run "$GOTESTSUM" --junitfile build/junit.xml -- -count=1 ./...
 fi
 
+# The process map (docs/process/sdlc-map.yml) must match the repo: its tests, then --check (stale Markdown,
+# a path that matches nothing, a command intentgate does not accept). Builds ./cmd/intentgate, so it needs go.
+if need python3; then
+  step "process map" sh -c 'python3 -I scripts/sdlc_map_test.py && python3 -I scripts/sdlc-map.py --check'
+fi
+
 if need req; then
   step "req canon" req canon --fail-on-flag
   step "req satisfy" req satisfy
