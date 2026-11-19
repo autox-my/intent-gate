@@ -1,0 +1,17 @@
+# DEC-0014: accept REQ-0015 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0014
+kind: accept
+claim_id: REQ-0015
+address: 84f3fe1220d30b923b8bf6f08bf821b2518e25d103794b0b4eb3b3419dd3f547
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0015 as written at this address: "The lock command shall scan the root intent for secrets before it writes the intent lock."
+  It is satisfied by its design element and proven by its linked tests (TestMask_RedactsSecrets, TestMaskAndBuild_ScanBeforeWrite), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

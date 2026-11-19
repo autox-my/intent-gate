@@ -1,0 +1,17 @@
+# DEC-0013: accept REQ-0014 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0013
+kind: accept
+claim_id: REQ-0014
+address: 10a784762b80b20bbd99ec77a44325c3fa6845615850bda411206b84b2ddf310
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0014 as written at this address: "The committed lock file shall not contain the root intent."
+  It is satisfied by its design element and proven by its linked tests (TestParse_RejectsUnknownKeys, TestParse_RejectsUnknownAmendmentKeys), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

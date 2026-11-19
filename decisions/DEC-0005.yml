@@ -1,0 +1,17 @@
+# DEC-0005: accept REQ-0006 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0005
+kind: accept
+claim_id: REQ-0006
+address: 85b6fc42e1db5ef5482b3e07899bcec7fe862266bfc227ef3a90d74b2230c0e8
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0006 as written at this address: "The intent lock shall store the root intent verbatim."
+  It is satisfied by its design element and proven by its linked tests (TestStore_RootIntentVerbatim), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

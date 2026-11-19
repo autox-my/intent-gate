@@ -1,0 +1,17 @@
+# DEC-0033: accept REQ-0034 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0033
+kind: accept
+claim_id: REQ-0034
+address: 49ff5a2d1562bbb9b01f8e283f1afad24329bb1df99f23947c664f8648d227b2
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0034 as written at this address: "The PR check shall skip pull requests authored by dependency-update bots."
+  It is satisfied by its design element and proven by its linked tests (TestRun_SkipsBots), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

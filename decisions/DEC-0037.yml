@@ -1,0 +1,17 @@
+# DEC-0037: accept REQ-0038 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0037
+kind: accept
+claim_id: REQ-0038
+address: 6a867d97c8cf8e5e29b1888f9dd0c7eb695f222cd1c4e070ddad3e78b1f6b5d4
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0038 as written at this address: "The PR check shall post no comment when every check passes."
+  It is satisfied by its design element and proven by its linked tests (TestDecide_CleanNoNewComment), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

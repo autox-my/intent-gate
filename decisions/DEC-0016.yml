@@ -1,0 +1,17 @@
+# DEC-0016: accept REQ-0017 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0016
+kind: accept
+claim_id: REQ-0017
+address: a6639b013fb486b219477eacceeeb26e1dbafee5a4c5ec57675655239598ea1c
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0017 as written at this address: "The plan review shall report what the plan adds that the root intent does not ask for."
+  It is satisfied by its design element and proven by its linked tests (TestRun_ReportsEachKind, TestDisplay_EachKind, TestJev_MapsAnswersToFindings), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

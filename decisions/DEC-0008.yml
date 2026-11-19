@@ -1,0 +1,17 @@
+# DEC-0008: accept REQ-0009 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0008
+kind: accept
+claim_id: REQ-0009
+address: f1903bb8d155b3a15f2630a4b8fd31120b25301ad707c45918b4a02b6c59d110
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0009 as written at this address: "The intent lock shall record the ratifier identity."
+  It is satisfied by its design element and proven by its linked tests (TestValidate_Ratification), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

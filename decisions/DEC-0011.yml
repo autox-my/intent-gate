@@ -1,0 +1,17 @@
+# DEC-0011: accept REQ-0012 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0011
+kind: accept
+claim_id: REQ-0012
+address: c0838abbb9e31b9dd42149ad0a1a3fa93ad661682663ffd2e5aeae58f47911c9
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0012 as written at this address: "The intent lock shall record the review duration of the ratification."
+  It is satisfied by its design element and proven by its linked tests (TestValidate_ReviewDuration), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

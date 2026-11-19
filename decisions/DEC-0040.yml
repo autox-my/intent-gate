@@ -1,0 +1,17 @@
+# DEC-0040: accept REQ-0041 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0040
+kind: accept
+claim_id: REQ-0041
+address: 97f22babbb6e2eff0a7cc7ad57f3bffb44bd3c1c7196a87d89449f213ea070d3
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0041 as written at this address: "The PR check shall record the footprint-amendment rate."
+  It is satisfied by its design element and proven by its linked tests (TestStats_AmendmentRate), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

@@ -1,0 +1,17 @@
+# DEC-0031: accept REQ-0032 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0031
+kind: accept
+claim_id: REQ-0032
+address: 989f7699f5db5561f49d66a5cbf375b379999626d57a214aaa682e5d65b9b892
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0032 as written at this address: "The PR check shall not derive criteria from the pull request description."
+  It is satisfied by its design element and proven by its linked tests (TestInput_HasNoDescriptionFields), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

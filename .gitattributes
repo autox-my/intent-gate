@@ -1,0 +1,7 @@
+# A Baseline is signed over the exact bytes of its manifest, and the decision log's chain hashes
+# exact bytes too (req docs/adopting.md). Pin LF for those paths so no checkout rewrites them.
+baselines/*.json     text eol=lf
+baselines/*.minisig  text eol=lf
+baselines/trust.yml  text eol=lf
+decisions/*.yml      text eol=lf
+claims/*.yml         text eol=lf

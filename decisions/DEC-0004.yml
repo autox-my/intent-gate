@@ -1,0 +1,17 @@
+# DEC-0004: accept REQ-0005 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0004
+kind: accept
+claim_id: REQ-0005
+address: 7d244ea34c78f39be16cf9d1786a46ef48d7574df074ff9b1db27db3a4002e76
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0005 as written at this address: "The lock command shall create an intent lock only after an interactive human confirmation."
+  It is satisfied by its design element and proven by its linked tests (TestLock_RequiresTerminalAndYes, TestAmend_RequiresTerminalAndYes, TestLock_BuiltBinaryNeedsRealTerminal), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

@@ -1,0 +1,17 @@
+# DEC-0002: accept REQ-0003 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0002
+kind: accept
+claim_id: REQ-0003
+address: 92df9ce106db957e42b3ddc93c5c65f80d371c7f57fa6b9026e3c029744fac2e
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0003 as written at this address: "The lock command shall create an intent lock from an issue."
+  It is satisfied by its design element and proven by its linked tests (TestLock_FromIssue), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.

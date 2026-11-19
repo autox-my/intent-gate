@@ -1,0 +1,17 @@
+# DEC-0032: accept REQ-0033 for the Phase 0 Baseline.
+#
+# Drafted by the orchestrator for the human to review. `prev_hash` and `hash` are deliberately
+# absent: only `req decision --fill` writes them (scripts/sign-baseline.sh runs it). Agree the note
+# first: the hash covers it, and editing it after filling is TAMPERED by design.
+id: DEC-0032
+kind: accept
+claim_id: REQ-0033
+address: 7aae20f033a9f2f8edc23a0273369201a55e589f4813f5542176c4676ba0e6e2
+actor: fdx
+role: maintainer
+date: 2026-11-19
+note: >-
+  I accept REQ-0033 as written at this address: "The PR check shall post no comment on a pull request that has no intent lock."
+  It is satisfied by its design element and proven by its linked tests (TestDecide_NoLockNoComment), all passing at
+  Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
+  surface. No dissent recorded.
