@@ -157,10 +157,13 @@ func TestHook_ApprovedPlanWritesLock(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("pre exit = %d", code)
 	}
-	for _, want := range []string{"IntentGate will lock these criteria if you approve", "Findings are published as SARIF", "internal/report/**"} {
+	for _, want := range []string{"IntentGate criteria for this plan:", "Findings are published as SARIF", "internal/report/**"} {
 		if !strings.Contains(obj["systemMessage"], want) {
 			t.Errorf("pre systemMessage %q lacks %q", obj["systemMessage"], want)
 		}
+	}
+	if msg := obj["systemMessage"]; !strings.HasPrefix(msg, "IntentGate criteria for this plan:") || strings.Contains(msg, "if you approve") {
+		t.Errorf("pre systemMessage = %q, want it to start \"IntentGate criteria for this plan:\" and not promise a lock", msg)
 	}
 	if got := e.pendingFiles(); len(got) != 1 || !strings.HasSuffix(got[0], filepath.Join("pending", "sess-1", "toolu_01.json")) {
 		t.Fatalf("pending records after pre: %v", got)
@@ -177,7 +180,7 @@ func TestHook_ApprovedPlanWritesLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "IntentGate: intent lock written: .intent/" + wantID + ".yml"; obj["systemMessage"] != want {
+	if want := "IntentGate: intent lock written: .intent/" + wantID + ".yml (plan review: unavailable; 0 omissions, 0 additions, 0 weakenings)"; obj["systemMessage"] != want {
 		t.Errorf("post systemMessage = %q, want %q", obj["systemMessage"], want)
 	}
 	files := e.locks()
