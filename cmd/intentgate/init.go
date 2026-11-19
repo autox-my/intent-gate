@@ -86,21 +86,114 @@ func runInit(args []string, stdout io.Writer, deps Deps) int {
 	out.WriteString("next: " + nextStep(*agent) + "\n")
 
 	if !*dry {
-		for _, f := range plan {
-			if f.content == nil {
-				continue
-			}
-			p := filepath.Join(top, filepath.FromSlash(f.path))
-			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-				return t.fail(exitUnverifiable, "intentgate init: %s: %v", f.path, err)
-			}
-			if err := os.WriteFile(p, f.content, 0o644); err != nil {
-				return t.fail(exitUnverifiable, "intentgate init: %s: %v", f.path, err)
-			}
+		if err := writeAll(plan); err != nil {
+			return t.fail(exitUnverifiable, "intentgate init: %v", err)
 		}
 	}
 	_, _ = io.WriteString(stdout, out.String())
 	return exitOK
+}
+
+// writeAll writes every planned file or none: each new content goes to a temp file beside its
+// target first, and only when all of them exist are they renamed into place. Any error before the
+// renames removes the temps (and the directories this call made) and leaves every file as it was.
+func writeAll(plan []initFile) (err error) {
+	type staged struct {
+		f    initFile
+		tmp  string
+		mode os.FileMode
+		done bool
+	}
+	var steps []*staged
+	var madeDirs []string // deepest first
+	defer func() {
+		if err == nil {
+			return
+		}
+		for i := len(steps) - 1; i >= 0; i-- {
+			st := steps[i]
+			switch {
+			case !st.done:
+				_ = os.Remove(st.tmp)
+			case st.f.orig != nil:
+				_ = replaceFile(st.f.target, st.f.orig, st.mode)
+			default:
+				_ = os.Remove(st.f.target)
+			}
+		}
+		for _, d := range madeDirs {
+			_ = os.Remove(d)
+		}
+	}()
+
+	for _, f := range plan {
+		if f.content == nil {
+			continue
+		}
+		dir := filepath.Dir(f.target)
+		var missing []string
+		for d := dir; ; d = filepath.Dir(d) {
+			if _, serr := os.Stat(d); serr == nil || filepath.Dir(d) == d {
+				break
+			}
+			missing = append(missing, d)
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("%s: %v", f.path, err)
+		}
+		madeDirs = append(missing, madeDirs...)
+		mode := os.FileMode(0o644)
+		if fi, serr := os.Stat(f.target); serr == nil {
+			// A rename would replace a read-only file without complaint; writing it would not.
+			w, oerr := os.OpenFile(f.target, os.O_WRONLY, 0)
+			if oerr != nil {
+				return fmt.Errorf("%s: %v", f.path, oerr)
+			}
+			_ = w.Close()
+			mode = fi.Mode().Perm()
+		}
+		tmp, err := stageFile(dir, filepath.Base(f.target), f.content, mode)
+		if err != nil {
+			return fmt.Errorf("%s: %v", f.path, err)
+		}
+		steps = append(steps, &staged{f: f, tmp: tmp, mode: mode})
+	}
+	for _, st := range steps {
+		if err := os.Rename(st.tmp, st.f.target); err != nil {
+			return fmt.Errorf("%s: %v", st.f.path, err)
+		}
+		st.done = true
+	}
+	return nil
+}
+
+// stageFile writes data to a new temp file in dir and returns its path.
+func stageFile(dir, base string, data []byte, mode os.FileMode) (string, error) {
+	tmp, err := os.CreateTemp(dir, "."+base+".tmp*")
+	if err != nil {
+		return "", err
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(data)
+	cerr := tmp.Close()
+	if err := errors.Join(werr, cerr, os.Chmod(name, mode)); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	return name, nil
+}
+
+// replaceFile puts data at path through a temp file and a rename.
+func replaceFile(path string, data []byte, mode os.FileMode) error {
+	tmp, err := stageFile(filepath.Dir(path), filepath.Base(path), data, mode)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func nextStep(agent string) string {
