@@ -6,3 +6,4 @@ target/
 node_modules/
 .env
 build/
+.claude/settings.local.json
