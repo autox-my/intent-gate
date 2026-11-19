@@ -300,6 +300,128 @@ func TestHook_RatifyCardWritesLock(t *testing.T) {
 		}
 	})
 
+	t.Run("a card that is not exactly what ratify-question prints is none of our business", func(t *testing.T) {
+		e, q := setup(t)
+		opt := func(label, desc string) any { return map[string]any{"label": label, "description": desc} }
+		ratify, notYet := opt("Ratify", "Write the intent lock for this plan"), opt("Not yet", "No lock")
+		card := func(multi bool, options ...any) []any {
+			return []any{map[string]any{"question": q, "header": "IntentGate", "multiSelect": multi, "options": options}}
+		}
+		for _, c := range []struct {
+			name string
+			qs   []any
+		}{
+			{"a single Ratify option", card(false, ratify)},
+			{"a changed description", card(false, opt("Ratify", "Lock it"), notYet)},
+			{"a changed label", card(false, ratify, opt("Later", "No lock"))},
+			{"multiSelect true", card(true, ratify, notYet)},
+			{"an extra option", card(false, ratify, notYet, opt("Maybe", "Think about it"))},
+			{"the options swapped", card(false, notYet, ratify)},
+			{"no options", card(false)},
+		} {
+			for _, ev := range []string{"PreToolUse", "PostToolUse"} {
+				which := map[string]string{"PreToolUse": "pre", "PostToolUse": "post"}[ev]
+				code, obj := e.run(which, e.cardInput(ev, c.qs, "Ratify"))
+				if code != 0 || len(obj) != 0 {
+					t.Errorf("%s %s: exit %d, %v; want {}", c.name, which, code, obj)
+				}
+			}
+		}
+		e.nothingWritten()
+		if len(e.pendingFiles()) != 0 {
+			t.Errorf("pending: %v", e.pendingFiles())
+		}
+	})
+
+	t.Run("a path outside the repo and the plans folder gets the same message whether or not it exists", func(t *testing.T) {
+		e, _ := setup(t)
+		for _, p := range []string{"/x/nope.md", filepath.Join(t.TempDir(), "nope.md"), "/etc/hosts"} {
+			q := cardQuestion(p, planText)
+			for _, c := range []struct{ which, event, answer string }{{"pre", "PreToolUse", ""}, {"post", "PostToolUse", "Ratify"}} {
+				_, obj := e.run(c.which, e.cardInput(c.event, cardQuestions("IntentGate", q), c.answer))
+				if !strings.HasPrefix(obj["systemMessage"], "IntentGate: no lock: ") || !strings.Contains(obj["systemMessage"], "plan path outside the repo and the plans folder") {
+					t.Errorf("%s %s: %v", p, c.which, obj)
+				}
+			}
+		}
+		e.nothingWritten()
+		if len(e.pendingFiles()) != 0 {
+			t.Errorf("pending: %v", e.pendingFiles())
+		}
+	})
+
+	t.Run("a missing plan inside the repo is still unreadable, not out of scope", func(t *testing.T) {
+		e, _ := setup(t)
+		_, obj := e.run("pre", e.cardInput("PreToolUse", cardQuestions("IntentGate", cardQuestion("docs/nope.md", planText)), ""))
+		if !strings.Contains(obj["systemMessage"], "cannot read the plan file") {
+			t.Errorf("pre: %v", obj)
+		}
+	})
+
+	// The answer comes from the transcript when tool_response carries no answers.
+	t.Run("the transcript answers when tool_response has none", func(t *testing.T) {
+		use := `{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_card","name":"AskUserQuestion","input":{}}]}}`
+		result := func(qs []any, q, id string, isErr bool, answers map[string]any) string {
+			b, _ := json.Marshal(map[string]any{
+				"type": "user",
+				"message": map[string]any{"role": "user", "content": []any{map[string]any{
+					"type": "tool_result", "tool_use_id": id, "is_error": isErr, "content": "ok"}}},
+				"toolUseResult": map[string]any{"questions": qs, "answers": answers},
+			})
+			return string(b)
+		}
+		for _, c := range []struct {
+			name     string
+			lines    func(qs []any, q string) []string // nil: the transcript file is missing
+			ratified bool
+		}{
+			{"Ratify in the result of the same tool_use_id", func(qs []any, q string) []string {
+				return []string{use, result(qs, q, "toolu_card", false, map[string]any{q: "Ratify"})}
+			}, true},
+			{"Not yet", func(qs []any, q string) []string {
+				return []string{use, result(qs, q, "toolu_card", false, map[string]any{q: "Not yet"})}
+			}, false},
+			{"Ratify in another tool_use_id's result", func(qs []any, q string) []string {
+				return []string{use, result(qs, q, "toolu_other", false, map[string]any{q: "Ratify"})}
+			}, false},
+			{"an error result", func(qs []any, q string) []string {
+				return []string{use, result(qs, q, "toolu_card", true, map[string]any{q: "Ratify"})}
+			}, false},
+			{"no answers anywhere", func(qs []any, q string) []string {
+				return []string{use, result(qs, q, "toolu_card", false, map[string]any{})}
+			}, false},
+			{"no result at all", func(qs []any, q string) []string { return []string{use} }, false},
+			{"the transcript is missing", nil, false},
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				e, q := setup(t)
+				qs := cardQuestions("IntentGate", q)
+				preOK(t, e, q)
+				if c.lines == nil {
+					e.tpath += ".missing"
+				} else if err := os.WriteFile(e.tpath, []byte(transcript+strings.Join(c.lines(qs, q), "\n")+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				var in map[string]any
+				_ = json.Unmarshal([]byte(e.cardInput("PostToolUse", qs, "")), &in)
+				in["tool_response"] = map[string]any{"questions": qs} // the answers are not here
+				b, _ := json.Marshal(in)
+				e.now = t0.Add(time.Second)
+				code, obj := e.run("post", string(b))
+				if c.ratified {
+					if code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") || len(e.locks()) != 1 {
+						t.Errorf("exit %d, %v, locks %v", code, obj, e.locks())
+					}
+					return
+				}
+				if code != 0 || obj["systemMessage"] != "IntentGate: no lock (not ratified)" {
+					t.Errorf("exit %d, %v; want not ratified", code, obj)
+				}
+				e.nothingWritten()
+			})
+		}
+	})
+
 	t.Run("a path that climbs out of the repo", func(t *testing.T) {
 		e, _ := setup(t)
 		outside := filepath.Join(t.TempDir(), "plan.md")
