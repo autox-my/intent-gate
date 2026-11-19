@@ -15,3 +15,5 @@ note: >-
   It is satisfied by its design element and proven by its linked tests (TestRun_Budget, TestHook_PlanReviewBudgetCoversPreparation, TestLock_PlanReviewBudgetCoversPreparation), all passing at
   Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
   surface. No dissent recorded.
+prev_hash: "a9048c8a002b2370c37928494c4f0b6041baf4beefbc0f25f6d62bfa3fd6f29d"
+hash: "5e30912ad3ef54360dabdbfbd6fd5e0c8af253b4ea362bf9702c2ea8c9b398fa"

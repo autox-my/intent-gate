@@ -15,3 +15,5 @@ note: >-
   It is satisfied by its design element and proven by its linked tests (TestStore_RootIntentVerbatim), all passing at
   Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
   surface. No dissent recorded.
+prev_hash: "afc8c91dfa611972f10611b840425c03dad65d2d5f14081527829a9ca8678355"
+hash: "4268d8c852c3ad196a929a070dc2aca23c15b28a3b0197e983fe5d45bae3022c"

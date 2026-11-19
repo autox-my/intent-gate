@@ -15,3 +15,5 @@ note: >-
   It is satisfied by its design element and proven by its linked tests (TestImplicit_Lockfiles), all passing at
   Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
   surface. No dissent recorded.
+prev_hash: "ad96d3f164cd7e86d61b7a18ab376a31a5bc2a73f01d7ba1d0f3773989a4638c"
+hash: "3f07df57e8aef18eb3d06c041aaa00d39dfd70079dccc9d7e81e718923159c99"

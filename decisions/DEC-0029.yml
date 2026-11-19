@@ -15,3 +15,5 @@ note: >-
   It is satisfied by its design element and proven by its linked tests (TestFinding_FixCommand, TestAmend_AddGlob, TestAmend_FixCommandRoundTrip), all passing at
   Phase 0 completion. Ratification is of the claim as it stands and asserts nothing about any other
   surface. No dissent recorded.
+prev_hash: "f3fe93f34a1fb9b3e6cc7f1d7a9ad7c397f0776a65659070b1ced109ed1e96f7"
+hash: "3b6ea85fdd906ce4d534f54d23a9275906e62937be199c2e3b379a45970f5bf2"
