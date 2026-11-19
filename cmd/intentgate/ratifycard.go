@@ -64,14 +64,35 @@ func runRatifyQuestion(args []string, stdout io.Writer, deps Deps) int {
 	return 0
 }
 
-// within reports whether path is inside root (symbolic links resolved on both sides) and, if so,
-// its slash-separated path relative to root.
+// resolveLoose is filepath.EvalSymlinks for a path that need not exist: the symbolic links of its
+// longest existing prefix are resolved and the rest is kept as written. It never stats the path
+// itself unless an ancestor lookup reaches it.
+func resolveLoose(path string) (string, error) {
+	path = filepath.Clean(path)
+	if p, err := filepath.EvalSymlinks(path); err == nil {
+		return p, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	parent, base := filepath.Split(path)
+	if parent == "" || parent == path || filepath.Clean(parent) == path {
+		return path, nil
+	}
+	p, err := resolveLoose(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(p, base), nil
+}
+
+// within reports whether path is inside root (symbolic links resolved on both sides; path may not
+// exist) and, if so, its slash-separated path relative to root.
 func within(root, path string) (string, bool) {
 	r, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return "", false
 	}
-	p, err := filepath.EvalSymlinks(path)
+	p, err := resolveLoose(path)
 	if err != nil {
 		return "", false
 	}
@@ -101,10 +122,7 @@ func cardPlan(in claudecode.Input, card claudecode.Card, deps Deps) (string, err
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		_, inPlans = within(filepath.Join(home, ".claude", "plans"), path)
 	}
-	if !inRepo && !inPlans {
-		if _, err := os.Stat(path); err != nil {
-			return "", fmt.Errorf("cannot read the plan file: %w", err)
-		}
+	if !inRepo && !inPlans { // scope first: an out-of-scope path is never statted, read or hashed
 		return "", errOutside
 	}
 	data, err := os.ReadFile(path)
