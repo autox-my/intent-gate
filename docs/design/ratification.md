@@ -54,6 +54,8 @@ The human's click on Claude Code's own approval prompt **is** the confirmation. 
 
 What `method: hook` attests is that Claude Code's hook runner called `post` after a `pre` for the same tool call; `post` refuses to write a lock without that `pre` record. It does not prove a click: any local process can run both commands with forged input. That is ADR 0003's position (ratification is recorded, not enforced in Phase 0), and the PR check must not present `method: hook` as stronger evidence than that.
 
+**Root intent scope:** the root intent is the human turns **since the previous approved plan** in the same session, not the whole session. A session that approves several plans (an orchestrator thread working slice after slice) gives each lock only what the human asked for that slice. An `ExitPlanMode` that was rejected doesn't reset the scope, so the feedback that led to the revised plan stays in. With no earlier approved plan, it is every human turn, as before.
+
 **Verified 2026-11-18** (Claude Code hooks reference, code.claude.com/docs/en/hooks, and an experiment on Claude Code 2.1.327):
 
 - Input: `tool_input.plan` and `tool_input.planFilePath` in `PreToolUse`; `tool_response.plan` and `tool_response.filePath` in `PostToolUse`; both carry `session_id`, `transcript_path`, `cwd`, `tool_use_id`.
