@@ -139,14 +139,42 @@ func humanText(text string) (string, bool) {
 	return text, true
 }
 
+// exitPlanMode is the tool whose approval scopes the root intent.
+const exitPlanMode = "ExitPlanMode"
+
+// planBlock is the part of a content block the plan scoping reads: an ExitPlanMode tool_use, or the
+// tool_result that answers one (is_error is true when the human rejected the plan).
+type planBlock struct {
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	ID        string `json:"id"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+}
+
+func planBlocks(content json.RawMessage) []planBlock {
+	var blocks []planBlock
+	if json.Unmarshal(content, &blocks) != nil { // a string, or anything else: no blocks
+		return nil
+	}
+	return blocks
+}
+
 // RootIntent returns the human turns of a JSONL transcript joined with TurnSeparator, in file
 // order, and "claude-code/<model>" from the last assistant entry (empty if there is none). Human
 // turns are "user" entries whose content is a string or text blocks; meta, sidechain, compaction
 // summary and transcript-only entries, entries carrying a tool_result, interrupt markers and
 // slash-command or shell-output records are skipped, and <system-reminder> spans are removed (see
 // humanText); each kept turn is trimmed. A malformed line is an error; no turns is "".
+//
+// The turns are scoped to one plan (ratification.md §2, "Root intent scope"): only those after the
+// last ExitPlanMode tool use that came before currentToolUseID and was approved (its tool_result is
+// not an error). A rejected plan does not reset the scope, and currentToolUseID is never a boundary.
+// With no earlier approved plan, every turn is kept.
 func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy string, err error) {
 	var turns []string
+	start := 0                  // the turns before this index belong to an earlier approved plan
+	pending := map[string]int{} // earlier ExitPlanMode tool use id -> number of turns before it
 	for i, line := range bytes.Split(transcript, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
@@ -157,7 +185,15 @@ func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy str
 		}
 		switch e.Type {
 		case "user":
-			if e.IsMeta || e.IsSidechain || e.IsCompactSummary || e.IsVisibleInTranscriptOnly {
+			if e.IsSidechain {
+				continue
+			}
+			for _, b := range planBlocks(e.Message.Content) {
+				if n, ok := pending[b.ToolUseID]; ok && b.Type == "tool_result" && !b.IsError && n > start {
+					start = n
+				}
+			}
+			if e.IsMeta || e.IsCompactSummary || e.IsVisibleInTranscriptOnly {
 				continue
 			}
 			if t, ok := turnText(e.Message.Content); ok {
@@ -171,10 +207,15 @@ func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy str
 				if e.Message.Model != "" {
 					draftedBy = "claude-code/" + e.Message.Model
 				}
+				for _, b := range planBlocks(e.Message.Content) {
+					if b.Type == "tool_use" && b.Name == exitPlanMode && b.ID != "" && b.ID != currentToolUseID {
+						pending[b.ID] = len(turns)
+					}
+				}
 			}
 		}
 	}
-	return strings.Join(turns, TurnSeparator), draftedBy, nil
+	return strings.Join(turns[start:], TurnSeparator), draftedBy, nil
 }
 
 // Output is what a hook prints: one JSON object. An empty SystemMessage renders {}.
