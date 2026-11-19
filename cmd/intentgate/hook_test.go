@@ -180,7 +180,7 @@ func TestHook_ApprovedPlanWritesLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "IntentGate: intent lock written: .intent/" + wantID + ".yml (plan review: unavailable; 0 omissions, 0 additions, 0 weakenings)"; obj["systemMessage"] != want {
+	if want := "IntentGate: intent lock written: .intent/" + wantID + ".yml (plan review: unavailable; 0 omissions, 0 additions, 0 weakenings)\nroot intent: 2 human turn(s) whole session (no earlier approved plan)"; obj["systemMessage"] != want {
 		t.Errorf("post systemMessage = %q, want %q", obj["systemMessage"], want)
 	}
 	files := e.locks()

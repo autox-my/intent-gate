@@ -194,7 +194,7 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	if err != nil {
 		return claudecode.Output{}, err
 	}
-	res := hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
+	res, scopeLine := hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
 	sum := sha256.Sum256([]byte(in.ToolInput.Plan))
 	data, err := json.Marshal(pendingRecord{
 		FinishedAt: deps.Now().UTC().Format(time.RFC3339Nano),
@@ -214,6 +214,9 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	b.WriteString("IntentGate criteria for this plan:")
 	for _, c := range criteria {
 		fmt.Fprintf(&b, "\n- %s: %s (footprint: %s)", c.ID, c.Text, strings.Join(c.Footprint, ", "))
+	}
+	if scopeLine != "" {
+		b.WriteString("\n" + scopeLine)
 	}
 	b.WriteString("\n" + strings.TrimRight(planreview.Display(res), "\n"))
 	return claudecode.Output{SystemMessage: b.String()}, nil
@@ -238,10 +241,11 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	if err != nil {
 		return claudecode.Output{}, fmt.Errorf("reading the transcript: %w", err)
 	}
-	rootIntent, draftedBy, err := claudecode.RootIntent(tdata, in.ToolUseID)
+	scope, err := claudecode.RootIntentScope(tdata, in.ToolUseID)
 	if err != nil {
 		return claudecode.Output{}, err
 	}
+	rootIntent, draftedBy := scope.Text, scope.DraftedBy
 	if strings.TrimSpace(rootIntent) == "" {
 		return claudecode.Output{}, errors.New("the transcript has no human turns to lock")
 	}
@@ -297,6 +301,7 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	if pr := l.PlanReview; pr != nil {
 		msg += fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", pr.Status, *pr.Omissions, *pr.Additions, *pr.Weakenings)
 	}
+	msg += "\n" + scope.Describe()
 	return claudecode.Output{SystemMessage: msg}, nil
 }
 

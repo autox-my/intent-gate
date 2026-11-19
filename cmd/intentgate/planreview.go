@@ -91,22 +91,31 @@ func reviewStep(deps Deps, maskedPlan string, rootIntent func() (string, error))
 
 // hookPlanReview is the review for the hook's PreToolUse: the transcript is read, and the human
 // turns taken from it, inside the review step's budget. Anything that goes wrong shows as
-// status error.
-func hookPlanReview(in claudecode.Input, maskedPlan string, deps Deps) planreview.Result {
-	return reviewStep(deps, maskedPlan, func() (string, error) {
+// status error. It also returns the line saying which scope the root intent used, or "" when the
+// transcript was not read in time.
+func hookPlanReview(in claudecode.Input, maskedPlan string, deps Deps) (planreview.Result, string) {
+	scopeLines := make(chan string, 1) // the step's goroutine may outlive the budget: it only writes here
+	res := reviewStep(deps, maskedPlan, func() (string, error) {
 		data, err := os.ReadFile(in.TranscriptPath)
 		if err != nil {
 			return "", errors.New("cannot read the transcript")
 		}
-		rootIntent, _, err := claudecode.RootIntent(data, in.ToolUseID)
+		scope, err := claudecode.RootIntentScope(data, in.ToolUseID)
 		if err != nil {
 			return "", errors.New("cannot read the human turns from the transcript")
 		}
-		if strings.TrimSpace(rootIntent) == "" {
+		scopeLines <- scope.Describe()
+		if strings.TrimSpace(scope.Text) == "" {
 			return "", errors.New("the transcript has no human turns")
 		}
-		return rootIntent, nil
+		return scope.Text, nil
 	})
+	select {
+	case line := <-scopeLines:
+		return res, line
+	default:
+		return res, ""
+	}
 }
 
 // planReviewRecord is the status and counts of res, the only part of a review that is stored.

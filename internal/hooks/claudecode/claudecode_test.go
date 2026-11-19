@@ -448,7 +448,7 @@ func TestRootIntent_ReviewOne(t *testing.T) {
 			toolUse("toolu_cur", "ExitPlanMode"),
 			toolResult("toolu_late", true),
 			user("ask B", nil),
-		), "ask A"+sep+"ask B", ScopeReused, 2)
+		), "ask B", ScopeSince, 1) // the late rejection is not seen: the unanswered use is a boundary
 	})
 	t.Run("no turn since the boundary: the previous plan's turns are reused", func(t *testing.T) {
 		check(t, join(
