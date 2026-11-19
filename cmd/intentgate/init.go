@@ -157,11 +157,13 @@ func planSettings(top string) (initFile, error) {
 	}
 
 	// The two hooks exactly as `hook claude-code print-config` prints them.
-	want, err := decodeObject(printConfig())
-	if err != nil {
+	// The entries stay raw, so their key order (`matcher` before `hooks`) is print-config's.
+	var want struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(printConfig(), &want); err != nil {
 		return invalid("internal error: %v", err)
 	}
-	wantHooks := want["hooks"].(map[string]any)
 
 	hooks, err := objectAt(doc, "hooks")
 	if err != nil {
@@ -177,7 +179,9 @@ func planSettings(top string) (initFile, error) {
 			return invalid("hooks.%s is not an array, left untouched", ev.event)
 		}
 		if !runsIntentgate(entries, ev.which) {
-			entries = append(entries, wantHooks[ev.event].([]any)...)
+			for _, e := range want.Hooks[ev.event] {
+				entries = append(entries, e)
+			}
 		}
 		hooks[ev.event] = entries
 	}
