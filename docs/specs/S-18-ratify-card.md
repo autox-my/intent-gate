@@ -17,6 +17,10 @@ No requirement changes: REQ-0002 ("create an intent lock when a human approves a
   - the plan path resolves inside the repository top level or `~/.claude/plans/`; anything else is "no lock: plan path outside the repo and the plans folder";
   - `pre`: read the file, check the hash, draft (masked) and run the plan review as for `ExitPlanMode`, write the pending record; a hash mismatch is "no lock: the plan changed since the question";
   - `post`: the selected answer for that question must be exactly `Ratify` (find how the harness reports answers in `tool_response`, from Claude Code's hooks docs and the structure of a local transcript's `AskUserQuestion` result; inspect keys only, commit synthetic fixtures); re-read the file and re-check the hash; then the same lock path as an approved plan. `Not yet` or any other answer: "IntentGate: no lock (not ratified)".
+- Review 1 amendments (binding):
+  - A card counts only if it is exactly what `ratify-question` prints: one question, `multiSelect: false`, and exactly the two options `Ratify` / `Not yet` with their fixed descriptions, in that order. Anything else (one option, extra options, other descriptions, multi-select) prints `{}` and writes nothing.
+  - The plan path is checked against the repo and plans folder **before** touching the file system, so every out-of-scope path gets "no lock: plan path outside the repo and the plans folder" whether or not it exists.
+  - If `tool_response.answers` is absent, `post` falls back to the transcript entry whose `toolUseResult` belongs to the same `tool_use_id` (also harness-written); anything else fails closed ("not ratified").
 - Root-intent scope: a ratified card is a boundary exactly like an approved `ExitPlanMode` (the `Ratify` answer is its approval).
 - `intentgate init` also registers `PreToolUse` and `PostToolUse` entries with matcher `AskUserQuestion` (same commands, same timeouts); dedupe rules as today. Re-run it on this repo and commit the result unedited.
 - `AGENTS.md` step 1: where the harness captures plans, the orchestrator writes the spec, runs `ratify-question`, and asks that exact card; the human's `Ratify` writes the lock.
