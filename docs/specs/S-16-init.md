@@ -25,6 +25,13 @@ No requirement changes: this is the setup step the design already names. REQ-000
 - The top-level usage text lists every command: `hook`, `lock`, `amend`, `verify`, `publish`, `stats`, `init` (today `stats` and `publish` are missing).
 - Process map: add `init` to `docs/process/sdlc-map.yml` (the BUILD "Plan mode" entry's `commands:`), and `stats` / `publish` where the map names them in prose; re-render `docs/process/sdlc-map.md`.
 - `README.md`: a "Set up a repository" section with `intentgate init`.
+- Review 1 amendments (binding):
+  - Markers inside a fenced code block in the instructions file are text, not markers: the scan skips fenced regions (backtick and tilde fences).
+  - All-or-nothing writes: every new file content is first written to a temp file beside its target; only when all temps exist are they renamed into place. Any error before the renames removes the temps and leaves every file as it was (the README's "exit 3 means nothing was written" stays true).
+  - A target that is a symlink is written through only if it resolves inside the repository's top level; a symlink resolving outside it, or a dangling one, is exit 3 naming the file.
+  - An existing `PreToolUse`/`PostToolUse` entry with any matcher that already runs `intentgate hook claude-code pre|post` counts as present (no duplicate).
+  - The instructions section uses the file's line ending (CRLF if the file's first line ends in CRLF).
+  - New hook entries use the same key order as `print-config` (`matcher` before `hooks`).
 - Dependencies: none new.
 
 ## Tests first (committed red)
