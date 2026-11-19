@@ -209,7 +209,7 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 		return claudecode.Output{}, err
 	}
 	var b strings.Builder
-	b.WriteString("IntentGate will lock these criteria if you approve:")
+	b.WriteString("IntentGate criteria for this plan:")
 	for _, c := range criteria {
 		fmt.Fprintf(&b, "\n- %s: %s (footprint: %s)", c.ID, c.Text, strings.Join(c.Footprint, ", "))
 	}
@@ -291,7 +291,11 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	}
 	_ = os.Remove(recPath)
 	auditLockWritten(deps, audit.EventLock, l, now, top)
-	return claudecode.Output{SystemMessage: "IntentGate: intent lock written: .intent/" + l.ID + ".yml"}, nil
+	msg := "IntentGate: intent lock written: .intent/" + l.ID + ".yml"
+	if pr := l.PlanReview; pr != nil {
+		msg += fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", pr.Status, *pr.Omissions, *pr.Additions, *pr.Weakenings)
+	}
+	return claudecode.Output{SystemMessage: msg}, nil
 }
 
 var safeComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)

@@ -668,7 +668,7 @@ func TestHook_BuiltBinary(t *testing.T) {
 
 	code, stdout, stderr := call(e.input("PreToolUse", planText, "ExitPlanMode"), "hook", "claude-code", "pre")
 	obj := oneObject("pre", stdout, stderr)
-	if code != 0 || !strings.Contains(obj["systemMessage"], "IntentGate will lock these criteria") {
+	if code != 0 || !strings.Contains(obj["systemMessage"], "IntentGate criteria for this plan:") {
 		t.Errorf("pre: exit %d, %v", code, obj)
 	}
 	code, stdout, stderr = call(e.input("PostToolUse", planText, "ExitPlanMode"), "hook", "claude-code", "post")
