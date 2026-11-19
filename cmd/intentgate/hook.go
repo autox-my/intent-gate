@@ -67,7 +67,7 @@ type Deps struct {
 const (
 	exitPlanMode = "ExitPlanMode"
 	pendingTTL   = 24 * time.Hour
-	usage        = "usage: intentgate hook claude-code pre|post|print-config\n" + lockUsage + amendUsage + verifyUsage
+	usage        = "usage: intentgate hook claude-code pre|post|print-config\n" + lockUsage + amendUsage + verifyUsage + publishUsage + statsUsage + initUsage
 )
 
 // Run executes the intentgate command line (hook, lock, amend, verify) and returns the exit code. `hook claude-code pre|post`

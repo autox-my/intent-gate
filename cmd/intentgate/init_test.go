@@ -16,8 +16,8 @@ import (
 // The init tests run `intentgate init` against temporary git repositories (S-16).
 
 const (
-	sectionBegin = "<!-- intentgate:begin -->"
-	sectionEnd   = "<!-- intentgate:end -->"
+	markBegin = "<!-- intentgate:begin -->"
+	markEnd   = "<!-- intentgate:end -->"
 )
 
 func initRun(t *testing.T, dir string, args ...string) (code int, stdout, stderr string) {
@@ -105,7 +105,7 @@ func TestInit_FreshRepo(t *testing.T) {
 		t.Errorf("settings.json is not 2-space JSON with a trailing newline:\n%s", raw)
 	}
 	agents := r.read("AGENTS.md")
-	if strings.Count(agents, sectionBegin) != 1 || strings.Count(agents, sectionEnd) != 1 {
+	if strings.Count(agents, markBegin) != 1 || strings.Count(agents, markEnd) != 1 {
 		t.Fatalf("AGENTS.md should hold one marked section:\n%s", agents)
 	}
 	for _, want := range []string{"criteria:\n  - text: ", "\n    footprint: ", "Start work in plan mode; approving the plan writes the intent lock."} {
@@ -235,7 +235,7 @@ func TestInit_InstructionsFile(t *testing.T) {
 		if code, _, errs := initRun(t, r.dir); code != 0 {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
-		if !strings.Contains(r.read("AGENTS.md"), sectionBegin) {
+		if !strings.Contains(r.read("AGENTS.md"), markBegin) {
 			t.Error("AGENTS.md has no section")
 		}
 		if got := r.read("CLAUDE.md"); got != "# Claude\n" {
@@ -248,7 +248,7 @@ func TestInit_InstructionsFile(t *testing.T) {
 		if code, _, errs := initRun(t, r.dir); code != 0 {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
-		if !strings.Contains(r.read("CLAUDE.md"), sectionBegin) {
+		if !strings.Contains(r.read("CLAUDE.md"), markBegin) {
 			t.Error("CLAUDE.md has no section")
 		}
 		if r.exists("AGENTS.md") {
@@ -258,15 +258,15 @@ func TestInit_InstructionsFile(t *testing.T) {
 	t.Run("replaces its own section in place", func(t *testing.T) {
 		r := newVRepo(t)
 		const head, tail = "# Agents\n\nBefore.\n\n", "\n\n## After\n\nKept as is.\n"
-		r.write("AGENTS.md", head+sectionBegin+"\nold text\n"+sectionEnd+tail)
+		r.write("AGENTS.md", head+markBegin+"\nold text\n"+markEnd+tail)
 		if code, _, errs := initRun(t, r.dir); code != 0 {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
 		got := r.read("AGENTS.md")
-		if !strings.HasPrefix(got, head+sectionBegin+"\n") || !strings.HasSuffix(got, sectionEnd+tail) {
+		if !strings.HasPrefix(got, head+markBegin+"\n") || !strings.HasSuffix(got, markEnd+tail) {
 			t.Errorf("the rest of the file changed:\n%s", got)
 		}
-		if strings.Contains(got, "old text") || strings.Count(got, sectionBegin) != 1 {
+		if strings.Contains(got, "old text") || strings.Count(got, markBegin) != 1 {
 			t.Errorf("the section was not replaced:\n%s", got)
 		}
 		again := got
@@ -284,7 +284,7 @@ func TestInit_InstructionsFile(t *testing.T) {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
 		got := r.read("AGENTS.md")
-		if !strings.HasPrefix(got, "# Agents\n\nRules.\n") || !strings.Contains(got, "\n"+sectionBegin+"\n") || !strings.HasSuffix(got, sectionEnd+"\n") {
+		if !strings.HasPrefix(got, "# Agents\n\nRules.\n") || !strings.Contains(got, "\n"+markBegin+"\n") || !strings.HasSuffix(got, markEnd+"\n") {
 			t.Errorf("unexpected AGENTS.md:\n%s", got)
 		}
 	})
