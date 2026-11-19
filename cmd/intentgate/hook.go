@@ -238,7 +238,7 @@ func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, er
 	if err != nil {
 		return claudecode.Output{}, fmt.Errorf("reading the transcript: %w", err)
 	}
-	rootIntent, draftedBy, err := claudecode.RootIntent(tdata)
+	rootIntent, draftedBy, err := claudecode.RootIntent(tdata, in.ToolUseID)
 	if err != nil {
 		return claudecode.Output{}, err
 	}

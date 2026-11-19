@@ -98,7 +98,7 @@ func hookPlanReview(in claudecode.Input, maskedPlan string, deps Deps) planrevie
 		if err != nil {
 			return "", errors.New("cannot read the transcript")
 		}
-		rootIntent, _, err := claudecode.RootIntent(data)
+		rootIntent, _, err := claudecode.RootIntent(data, in.ToolUseID)
 		if err != nil {
 			return "", errors.New("cannot read the human turns from the transcript")
 		}

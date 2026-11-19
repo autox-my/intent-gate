@@ -145,7 +145,7 @@ func humanText(text string) (string, bool) {
 // summary and transcript-only entries, entries carrying a tool_result, interrupt markers and
 // slash-command or shell-output records are skipped, and <system-reminder> spans are removed (see
 // humanText); each kept turn is trimmed. A malformed line is an error; no turns is "".
-func RootIntent(transcript []byte) (text, draftedBy string, err error) {
+func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy string, err error) {
 	var turns []string
 	for i, line := range bytes.Split(transcript, []byte("\n")) {
 		if len(bytes.TrimSpace(line)) == 0 {

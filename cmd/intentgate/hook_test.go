@@ -696,3 +696,36 @@ func TestHook_BuiltBinary(t *testing.T) {
 		t.Errorf("bogus: exit %d, stdout %q, stderr %q; want 2, empty, usage", code, stdout, stderr)
 	}
 }
+
+// A session that approved a plan earlier gives the next lock only the turns since that plan
+// (ratification.md §2, "Root intent scope"): `pre` and `post` pass the hook input's tool_use_id.
+func TestHook_RootIntentScoped(t *testing.T) {
+	e := newEnv(t, "dev@example.com")
+	scoped := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"Earlier slice ask."}}`,
+		`{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_00","name":"ExitPlanMode","input":{}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_00","content":"approved"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"Please add SARIF output."}}`,
+		`{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_01","name":"ExitPlanMode","input":{}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Keep it small."}]}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(e.tpath, []byte(scoped), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.pre()
+	e.now = t0.Add(time.Second)
+	if code, obj := e.run("post", e.input("PostToolUse", planText, "ExitPlanMode")); code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") {
+		t.Fatalf("post: exit %d, %v", code, obj)
+	}
+	recs, _ := filepath.Glob(filepath.Join(e.state, "locks", "*", "root-intent.md"))
+	if len(recs) != 1 {
+		t.Fatalf("root intent records: %v", recs)
+	}
+	rec, err := os.ReadFile(recs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(rec) != wantRootIntent {
+		t.Errorf("root intent record = %q, want only the turns since the approved plan: %q", rec, wantRootIntent)
+	}
+}
