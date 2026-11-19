@@ -252,7 +252,7 @@ func planConfig(top string) (initFile, error) {
 
 // ---- .claude/settings.json ----
 
-// planSettings merges the two hooks and permissions.defaultMode into .claude/settings.json.
+// planSettings merges the hooks (the two for ExitPlanMode and the two for the ratify card) and permissions.defaultMode into .claude/settings.json.
 func planSettings(top string) (initFile, error) {
 	invalid := func(format string, args ...any) (initFile, error) {
 		return initFile{}, fmt.Errorf("%s: %s", settingsPath, fmt.Sprintf(format, args...))
@@ -294,8 +294,14 @@ func planSettings(top string) (initFile, error) {
 		default:
 			return invalid("hooks.%s is not an array, left untouched", ev.event)
 		}
-		if !runsIntentgate(entries, ev.which) {
-			for _, e := range want.Hooks[ev.event] {
+		for _, e := range want.Hooks[ev.event] {
+			var m struct {
+				Matcher string `json:"matcher"`
+			}
+			if err := json.Unmarshal(e, &m); err != nil {
+				return invalid("internal error: %v", err)
+			}
+			if !runsIntentgate(entries, ev.which, m.Matcher) {
 				entries = append(entries, e)
 			}
 		}
@@ -371,10 +377,21 @@ func objectAt(doc map[string]any, key string) (map[string]any, error) {
 	return nil, fmt.Errorf("%s is not an object", key)
 }
 
-// runsIntentgate reports whether an entry, under any matcher, already runs `intentgate hook claude-code <which>`.
-func runsIntentgate(entries []any, which string) bool {
+// runsIntentgate reports whether an entry already runs `intentgate hook claude-code <which>` for the
+// tool the wanted matcher names. An entry for ExitPlanMode counts under any matcher but
+// AskUserQuestion's own (as it always has); one for AskUserQuestion counts when its matcher
+// covers that tool (see matcherCovers).
+func runsIntentgate(entries []any, which, wanted string) bool {
 	for _, e := range entries {
 		em, _ := e.(map[string]any)
+		matcher, _ := em["matcher"].(string)
+		if wanted == exitPlanMode {
+			if matcher == askUserQuestion {
+				continue
+			}
+		} else if !matcherCovers(matcher, wanted) {
+			continue
+		}
 		hs, _ := em["hooks"].([]any)
 		for _, h := range hs {
 			hm, _ := h.(map[string]any)
@@ -382,6 +399,21 @@ func runsIntentgate(entries []any, which string) bool {
 			if isIntentgateHook(cmd, which) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// matcherCovers reports whether a hook matcher fires for a tool: the empty matcher and `*` fire
+// for every tool, and an alternation (`A|B`) for each name it lists. A regular expression more
+// elaborate than that is not interpreted, so the entry is added next to it.
+func matcherCovers(matcher, tool string) bool {
+	if matcher == "" || matcher == "*" {
+		return true
+	}
+	for _, name := range strings.Split(matcher, "|") {
+		if name == tool {
+			return true
 		}
 	}
 	return false

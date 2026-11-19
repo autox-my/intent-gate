@@ -329,7 +329,7 @@ func TestInit_RegistersAskUserQuestion(t *testing.T) {
 		Matcher string `json:"matcher"`
 		Hooks   []hook `json:"hooks"`
 	}
-	read := func() map[string][]entry {
+	read := func(r *vrepo) map[string][]entry {
 		var s struct {
 			Hooks map[string][]entry `json:"hooks"`
 		}
@@ -338,7 +338,7 @@ func TestInit_RegistersAskUserQuestion(t *testing.T) {
 		}
 		return s.Hooks
 	}
-	hooks := read()
+	hooks := read(r)
 	for ev, want := range map[string]hook{
 		"PreToolUse":  {"intentgate hook claude-code pre", 60},
 		"PostToolUse": {"intentgate hook claude-code post", 30},
@@ -372,7 +372,7 @@ func TestInit_RegistersAskUserQuestion(t *testing.T) {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
 		for ev, n := range map[string]int{"PreToolUse": 2, "PostToolUse": 2} {
-			if got := len(read()[ev]); got != n {
+			if got := len(read(r)[ev]); got != n {
 				t.Errorf("%s has %d entries, want %d", ev, got, n)
 			}
 		}
@@ -387,7 +387,7 @@ func TestInit_RegistersAskUserQuestion(t *testing.T) {
 			t.Fatalf("exit %d; %s", code, errs)
 		}
 		for _, ev := range []string{"PreToolUse", "PostToolUse"} {
-			if got := len(read()[ev]); got != 1 {
+			if got := len(read(r)[ev]); got != 1 {
 				t.Errorf("%s has %d entries, want the existing one only", ev, got)
 			}
 		}

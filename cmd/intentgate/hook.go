@@ -65,9 +65,10 @@ type Deps struct {
 }
 
 const (
-	exitPlanMode = "ExitPlanMode"
-	pendingTTL   = 24 * time.Hour
-	usage        = "usage: intentgate hook claude-code pre|post|print-config\n" + lockUsage + amendUsage + verifyUsage + publishUsage + statsUsage + initUsage
+	exitPlanMode    = "ExitPlanMode"
+	askUserQuestion = "AskUserQuestion"
+	pendingTTL      = 24 * time.Hour
+	usage           = "usage: intentgate hook claude-code pre|post|print-config\nusage: intentgate hook claude-code ratify-question <plan path>\n" + lockUsage + amendUsage + verifyUsage + publishUsage + statsUsage + initUsage
 )
 
 // Run executes the intentgate command line (hook, lock, amend, verify) and returns the exit code. `hook claude-code pre|post`
@@ -108,6 +109,8 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 		})
 		_, _ = stdout.Write(out.Render())
 		return 0
+	case "ratify-question":
+		return runRatifyQuestion(args[3:], stdout, deps)
 	case "print-config":
 		if len(args) == 3 {
 			_, _ = stdout.Write(printConfig())
@@ -156,7 +159,15 @@ func runHook(which string, stdin io.Reader, deps Deps) claudecode.Output {
 		return noLock(err)
 	}
 	event := map[string]string{"pre": "PreToolUse", "post": "PostToolUse"}[which]
-	if in.ToolName != exitPlanMode {
+	var card claudecode.Card
+	switch in.ToolName {
+	case exitPlanMode:
+	case askUserQuestion:
+		var ok bool
+		if card, ok = claudecode.ParseCard(in.ToolInput.Questions); !ok {
+			return claudecode.Output{} // an ordinary question: none of our business
+		}
+	default:
 		return claudecode.Output{}
 	}
 	if in.HookEventName != event {
@@ -170,10 +181,15 @@ func runHook(which string, stdin io.Reader, deps Deps) claudecode.Output {
 		return noLock(err)
 	}
 	var out claudecode.Output
-	if which == "pre" {
-		out, err = pre(in, rec, deps)
-	} else {
-		out, err = post(in, rec, deps)
+	switch {
+	case in.ToolName == askUserQuestion && which == "pre":
+		out, err = preCard(in, card, rec, deps)
+	case in.ToolName == askUserQuestion:
+		out, err = postCard(in, card, rec, deps)
+	case which == "pre":
+		out, err = pre(in, in.ToolInput.Plan, rec, deps)
+	default:
+		out, err = post(in, in.ToolResponse.Plan, rec, deps)
 	}
 	if err != nil {
 		return noLock(err)
@@ -189,13 +205,15 @@ type pendingRecord struct {
 	PlanReview *lock.PlanReview `json:"plan_review,omitempty"` // status and counts only, no text
 }
 
-func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
-	criteria, maskedPlan, err := draftAndMask(in.ToolInput.Plan)
+// pre is PreToolUse for a plan (ExitPlanMode's, or the ratify card's plan file): draft, review, show,
+// and save the pending record.
+func pre(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Output, error) {
+	criteria, maskedPlan, err := draftAndMask(plan)
 	if err != nil {
 		return claudecode.Output{}, err
 	}
 	res, scopeLine := hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
-	sum := sha256.Sum256([]byte(in.ToolInput.Plan))
+	sum := sha256.Sum256([]byte(plan))
 	data, err := json.Marshal(pendingRecord{
 		FinishedAt: deps.Now().UTC().Format(time.RFC3339Nano),
 		PlanSHA256: hex.EncodeToString(sum[:]),
@@ -222,14 +240,15 @@ func pre(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, err
 	return claudecode.Output{SystemMessage: b.String()}, nil
 }
 
-func post(in claudecode.Input, recPath string, deps Deps) (claudecode.Output, error) {
+// post is PostToolUse for an approved plan (ExitPlanMode's response, or the ratify card's plan
+// file): write the lock and the root intent record.
+func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Output, error) {
 	now := deps.Now()
 	// No pending record, no lock: post only counts as an approval after pre showed the criteria.
 	rec, shownAt, ok := readPendingRecord(recPath)
 	if !ok {
 		return claudecode.Output{}, errors.New("no pending record; was the plan shown by the PreToolUse hook?")
 	}
-	plan := in.ToolResponse.Plan
 	if plan == "" {
 		return claudecode.Output{}, errors.New("the approved plan is missing from the hook input")
 	}
@@ -410,7 +429,8 @@ func prunePending(pending string, now time.Time) {
 	}
 }
 
-// printConfig is the .claude/settings.json `hooks` fragment that wires the two hooks.
+// printConfig is the .claude/settings.json `hooks` fragment that wires the two hooks, for
+// ExitPlanMode and for the ratify card's AskUserQuestion (ratification.md §2.1).
 func printConfig() []byte {
 	type hook struct {
 		Type    string `json:"type"`
@@ -421,9 +441,13 @@ func printConfig() []byte {
 		Matcher string `json:"matcher"`
 		Hooks   []hook `json:"hooks"`
 	}
+	entries := func(command string, timeout int) []matcher {
+		h := []hook{{"command", command, timeout}}
+		return []matcher{{Matcher: exitPlanMode, Hooks: h}, {Matcher: askUserQuestion, Hooks: h}}
+	}
 	cfg := map[string]map[string][]matcher{"hooks": {
-		"PreToolUse":  {{Matcher: exitPlanMode, Hooks: []hook{{"command", "intentgate hook claude-code pre", 60}}}},
-		"PostToolUse": {{Matcher: exitPlanMode, Hooks: []hook{{"command", "intentgate hook claude-code post", 30}}}},
+		"PreToolUse":  entries("intentgate hook claude-code pre", 60),
+		"PostToolUse": entries("intentgate hook claude-code post", 30),
 	}}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	return append(b, '\n')
