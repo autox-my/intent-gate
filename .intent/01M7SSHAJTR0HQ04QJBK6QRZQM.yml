@@ -1,0 +1,32 @@
+schema: intentgate.lock/1
+id: 01M7SSHAJTR0HQ04QJBK6QRZQM
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 8885c244e38377a4854e685e49f82eb2bfebb4541dafa79b5627dcd1ea91f420
+  source: plan-file
+  redactions: 0
+criteria:
+  - id: C1
+    text: 'intentgate init sets up a repo: Claude Code hooks and plan mode in .claude/settings.json, an intentgate block template in the agent instructions, and .intentgate.yml'
+    footprint:
+      - cmd/intentgate/**
+  - id: C2
+    text: The usage text lists every command, and the process map and README name init
+    footprint:
+      - cmd/intentgate/**
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+      - README.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-19T11:37:11Z"
+  method: cli-confirm
+  review_duration_ms: 67028
+plan_review:
+  status: complete
+  omissions: 0
+  additions: 1
+  weakenings: 0
+amendments: []
+hash: sha256:e88edd0723794b44870783d748fabc1e82f43aaafbd45c6cd137eed291ad706f

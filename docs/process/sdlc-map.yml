@@ -34,9 +34,10 @@ entries:
     paths: ["scripts/check.sh"]
   - kind: BUILD
     title: "Plan mode"
-    detail: "+ AGENTS.md / CLAUDE.md"
+    detail: "intentgate init · AGENTS.md / CLAUDE.md"
     feeds: code
     paths: ["AGENTS.md", "CLAUDE.md"]
+    commands: ["init"]
   - kind: DEPLOY
     title: "IntentGate hooks + Action"
     detail: "lock · PR check"
@@ -169,6 +170,7 @@ artifacts:
     product: "Audit events, `intentgate stats` (amendment rate)."
     state: partial
     paths: ["docs/handoffs/*", "scripts/coverage-explorer.py"]
+    commands: ["stats"]
 
 # The product loop for one change: lanes are the participants, steps the messages in order.
 lifecycle:
@@ -196,7 +198,7 @@ lifecycle:
       name: "Action"
       sub: "verify + publish"
       paths: ["action/action.yml"]
-      commands: ["verify"]
+      commands: ["verify", "publish"]
   steps:
     - {from: H, to: A, text: "request (root intent), in plan mode"}
     - {from: A, to: A, text: "drafts plan ending in an intentgate block"}

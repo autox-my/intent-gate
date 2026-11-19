@@ -21,6 +21,19 @@ go install github.com/autox-my/intent-gate/cmd/intentgate@<ref>
 
 Use a tag or a full commit SHA for `<ref>`. Go 1.23 or later is required.
 
+## Set up a repository
+
+```sh
+intentgate init [--agent claude-code|generic] [--dry-run]
+```
+
+Run it once at the top of a git repository. For `claude-code` (the default) it adds the two hooks
+and `permissions.defaultMode: plan` to `.claude/settings.json`, merging into what is there; for
+both agents it writes a marked section into `AGENTS.md` (else `CLAUDE.md`) with the `intentgate`
+block template, and creates `.intentgate.yml` if it is missing. It is safe to run again, never
+writes a lock, and `--dry-run` prints what it would do without writing. Exit 3 means an existing
+file is invalid and nothing was written.
+
 ## Lock intent
 
 A lock is written only after a human confirms it: by typing `yes` at a terminal (there is no
