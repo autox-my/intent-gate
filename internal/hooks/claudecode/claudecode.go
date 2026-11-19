@@ -231,3 +231,31 @@ func (o Output) Render() []byte {
 	}
 	return append(b, '\n')
 }
+
+// ScopeKind says how RootIntentScope chose its turns.
+type ScopeKind string
+
+// The scopes: the turns since the previous approved plan, the previous plan's own turns (no new
+// ones since), or the whole session (no earlier approved plan).
+const (
+	ScopeSince  ScopeKind = "since"
+	ScopeReused ScopeKind = "reused"
+	ScopeWhole  ScopeKind = "whole"
+)
+
+// Scope is a root intent with how it was scoped.
+type Scope struct {
+	Text      string
+	DraftedBy string
+	Turns     int
+	Kind      ScopeKind
+}
+
+// Describe is the line the hooks print to say which scope was used.
+func (s Scope) Describe() string { return "" }
+
+// RootIntentScope is RootIntent with the scope it used.
+func RootIntentScope(transcript []byte, currentToolUseID string) (Scope, error) {
+	text, drafted, err := RootIntent(transcript, currentToolUseID)
+	return Scope{Text: text, DraftedBy: drafted}, err
+}

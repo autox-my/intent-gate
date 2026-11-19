@@ -729,3 +729,50 @@ func TestHook_RootIntentScoped(t *testing.T) {
 		t.Errorf("root intent record = %q, want only the turns since the approved plan: %q", rec, wantRootIntent)
 	}
 }
+
+// Review 1 of S-17: the pre and post messages say which scope the root intent used.
+func TestHook_ScopeLine(t *testing.T) {
+	approved := []string{
+		`{"type":"user","message":{"role":"user","content":"Earlier slice ask."}}`,
+		`{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_00","name":"ExitPlanMode","input":{}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_00","content":"approved"}]}}`,
+	}
+	current := `{"type":"assistant","message":{"role":"assistant","model":"claude-opus-5-5","content":[{"type":"tool_use","id":"toolu_01","name":"ExitPlanMode","input":{}}]}}`
+	for _, c := range []struct {
+		name       string
+		lines      []string
+		want       string
+		wantIntent string
+	}{
+		{"since", append(append([]string{}, approved...), `{"type":"user","message":{"role":"user","content":"Please add SARIF output."}}`, current,
+			`{"type":"user","message":{"role":"user","content":"Keep it small."}}`),
+			"root intent: 2 human turn(s) since the previous approved plan", wantRootIntent},
+		{"reused", append(append([]string{}, approved...), current),
+			"root intent: 1 human turn(s) reused from the previous plan (no new turns)", "Earlier slice ask."},
+		{"whole", []string{strings.TrimSpace(transcript)},
+			"root intent: 2 human turn(s) whole session (no earlier approved plan)", wantRootIntent},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, "dev@example.com")
+			if err := os.WriteFile(e.tpath, []byte(strings.Join(c.lines, "\n")+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, obj := e.run("pre", e.input("PreToolUse", planText, "ExitPlanMode"))
+			if code != 0 || !strings.Contains(obj["systemMessage"], c.want) {
+				t.Errorf("pre: exit %d, message %q, want it to contain %q", code, obj["systemMessage"], c.want)
+			}
+			e.now = t0.Add(time.Second)
+			code, obj = e.run("post", e.input("PostToolUse", planText, "ExitPlanMode"))
+			if code != 0 || !strings.Contains(obj["systemMessage"], "intent lock written") || !strings.Contains(obj["systemMessage"], c.want) {
+				t.Errorf("post: exit %d, message %q, want an intent lock and %q", code, obj["systemMessage"], c.want)
+			}
+			recs, _ := filepath.Glob(filepath.Join(e.state, "locks", "*", "root-intent.md"))
+			if len(recs) != 1 {
+				t.Fatalf("root intent records: %v", recs)
+			}
+			if rec, _ := os.ReadFile(recs[0]); string(rec) != c.wantIntent {
+				t.Errorf("root intent record = %q, want %q", rec, c.wantIntent)
+			}
+		})
+	}
+}

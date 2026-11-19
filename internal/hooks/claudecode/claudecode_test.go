@@ -351,3 +351,142 @@ func TestRootIntent_ScopedToCurrentPlan(t *testing.T) {
 		}
 	})
 }
+
+func toolUses(ids ...string) string {
+	var blocks []m
+	for _, id := range ids {
+		blocks = append(blocks, m{"type": "tool_use", "id": id, "name": "ExitPlanMode", "input": m{}})
+	}
+	return line(m{"type": "assistant", "message": m{"role": "assistant", "model": "claude-opus-5-5", "content": blocks}})
+}
+
+// toolResultText is a tool_result that is not an error, carrying text (a string, or text blocks).
+func toolResultText(id string, content any) string {
+	return user([]m{{"type": "tool_result", "tool_use_id": id, "content": content, "is_error": false}}, nil)
+}
+
+// Review 1 of S-17: boundary order, denial markers, missing results, empty scope, the scope line.
+func TestRootIntent_ReviewOne(t *testing.T) {
+	join := func(lines ...string) []byte { return []byte(strings.Join(lines, "\n") + "\n") }
+	const sep = TurnSeparator
+	check := func(t *testing.T, transcript []byte, want string, kind ScopeKind, turns int) {
+		t.Helper()
+		s, err := RootIntentScope(transcript, "toolu_cur")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Text != want || s.Kind != kind || s.Turns != turns {
+			t.Errorf("scope = {%q, %s, %d turns}, want {%q, %s, %d turns}", s.Text, s.Kind, s.Turns, want, kind, turns)
+		}
+		if text, _, _ := RootIntent(transcript, "toolu_cur"); text != want {
+			t.Errorf("RootIntent = %q, want %q", text, want)
+		}
+	}
+
+	t.Run("a plan after the current one is not a boundary", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+			user("ask B", nil),
+			toolUse("toolu_later", "ExitPlanMode"), toolResult("toolu_later", false),
+			user("ask C", nil),
+		), "ask A"+sep+"ask B"+sep+"ask C", ScopeWhole, 3)
+	})
+	t.Run("same message: a plan after the current one is ignored", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_0", "ExitPlanMode"), toolResult("toolu_0", false),
+			user("ask B", nil),
+			toolUses("toolu_cur", "toolu_later"), toolResult("toolu_later", false),
+		), "ask B", ScopeSince, 1)
+	})
+	t.Run("same message: a plan before the current one counts", func(t *testing.T) {
+		// Its boundary leaves no turns after it, so the previous plan's turns are reused.
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_0", "ExitPlanMode"), toolResult("toolu_0", false),
+			user("ask B", nil),
+			toolUses("toolu_first", "toolu_cur"), toolResult("toolu_first", false),
+		), "ask B", ScopeReused, 1)
+	})
+	t.Run("a denial marker in a non-error result does not reset", func(t *testing.T) {
+		for _, text := range []string{"The user doesn't want to proceed with this tool use.", "User rejected tool use", "The user REJECTED THE PLAN", "x"} {
+			for _, content := range []any{text, []m{{"type": "text", "text": text}}} {
+				want, kind := "ask A"+sep+"ask B", ScopeWhole
+				if text == "x" { // no marker: approved, a boundary
+					want, kind = "ask B", ScopeSince
+				}
+				check(t, join(
+					user("ask A", nil),
+					toolUse("toolu_d", "ExitPlanMode"), toolResultText("toolu_d", content),
+					user("ask B", nil),
+					toolUse("toolu_cur", "ExitPlanMode"),
+				), want, kind, strings.Count(want, sep)+1)
+			}
+		}
+	})
+	t.Run("an error result with an ordinary text is still a rejection", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_r", "ExitPlanMode"), toolResult("toolu_r", true),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask A"+sep+"ask B", ScopeWhole, 2)
+	})
+	t.Run("a plan with no result is a boundary", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_gone", "ExitPlanMode"),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B", ScopeSince, 1)
+	})
+	t.Run("a result that only comes after the current use does not count", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_late", "ExitPlanMode"),
+			toolUse("toolu_cur", "ExitPlanMode"),
+			toolResult("toolu_late", true),
+			user("ask B", nil),
+		), "ask A"+sep+"ask B", ScopeReused, 2)
+	})
+	t.Run("no turn since the boundary: the previous plan's turns are reused", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			user("ask B", nil), user("ask C", nil),
+			toolUse("toolu_2", "ExitPlanMode"), toolResult("toolu_2", false),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B"+sep+"ask C", ScopeReused, 2)
+	})
+	t.Run("no turn since the only boundary: the turns before it are reused", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil), user("ask B", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask A"+sep+"ask B", ScopeReused, 2)
+	})
+	t.Run("turns since the boundary: the scope is since", func(t *testing.T) {
+		check(t, join(
+			user("ask A", nil),
+			toolUse("toolu_1", "ExitPlanMode"), toolResult("toolu_1", false),
+			user("ask B", nil),
+			toolUse("toolu_cur", "ExitPlanMode"),
+		), "ask B", ScopeSince, 1)
+	})
+}
+
+func TestScope_Describe(t *testing.T) {
+	for _, c := range []struct {
+		s    Scope
+		want string
+	}{
+		{Scope{Kind: ScopeSince, Turns: 2}, "root intent: 2 human turn(s) since the previous approved plan"},
+		{Scope{Kind: ScopeReused, Turns: 1}, "root intent: 1 human turn(s) reused from the previous plan (no new turns)"},
+		{Scope{Kind: ScopeWhole, Turns: 3}, "root intent: 3 human turn(s) whole session (no earlier approved plan)"},
+	} {
+		if got := c.s.Describe(); got != c.want {
+			t.Errorf("Describe() = %q, want %q", got, c.want)
+		}
+	}
+}
