@@ -38,6 +38,8 @@ const (
 type initFile struct {
 	status  string // created, updated, unchanged or kept
 	path    string // repo-relative, slash-separated
+	target  string // absolute path to write: path, or what a symlink at path resolves to
+	orig    []byte // the bytes an existing file had (updated files)
 	notes   []string
 	content []byte
 }
@@ -108,30 +110,51 @@ func nextStep(agent string) string {
 	return "start Claude Code in this repository; it opens in plan mode, and approving a plan writes the intent lock."
 }
 
-// readExisting returns the file's bytes, or exists=false if there is no such file.
-func readExisting(top, rel string) (data []byte, exists bool, err error) {
-	data, err = os.ReadFile(filepath.Join(top, filepath.FromSlash(rel)))
+// readExisting returns the file's bytes, or exists=false if there is no such file. target is the
+// absolute path a write must go to: the file itself, or, for a symlink, what it resolves to. A
+// symlink that is dangling or resolves outside the repository's top level is an error.
+func readExisting(top, rel string) (data []byte, exists bool, target string, err error) {
+	target = filepath.Join(top, filepath.FromSlash(rel))
+	fi, err := os.Lstat(target)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return nil, false, target, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: %v", rel, err)
+		return nil, false, "", fmt.Errorf("%s: %v", rel, err)
 	}
-	return data, true, nil
+	if fi.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(target)
+		if err != nil {
+			return nil, false, "", fmt.Errorf("%s: a symlink that does not resolve (%v), left untouched", rel, err)
+		}
+		root, err := filepath.EvalSymlinks(top)
+		if err != nil {
+			return nil, false, "", fmt.Errorf("%s: %v", rel, err)
+		}
+		if r, err := filepath.Rel(root, resolved); err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
+			return nil, false, "", fmt.Errorf("%s: a symlink to %s, outside the repository, left untouched", rel, resolved)
+		}
+		target = resolved
+	}
+	data, err = os.ReadFile(target)
+	if err != nil {
+		return nil, false, "", fmt.Errorf("%s: %v", rel, err)
+	}
+	return data, true, target, nil
 }
 
 // ---- .intentgate.yml ----
 
 // planConfig creates `version: 1` if the file is absent and never modifies an existing one.
 func planConfig(top string) (initFile, error) {
-	_, exists, err := readExisting(top, configPath)
+	_, exists, target, err := readExisting(top, configPath)
 	if err != nil {
 		return initFile{}, err
 	}
 	if exists {
 		return initFile{status: "kept", path: configPath}, nil
 	}
-	return initFile{status: "created", path: configPath, content: []byte(configBody)}, nil
+	return initFile{status: "created", path: configPath, target: target, content: []byte(configBody)}, nil
 }
 
 // ---- .claude/settings.json ----
@@ -141,7 +164,7 @@ func planSettings(top string) (initFile, error) {
 	invalid := func(format string, args ...any) (initFile, error) {
 		return initFile{}, fmt.Errorf("%s: %s", settingsPath, fmt.Sprintf(format, args...))
 	}
-	data, exists, err := readExisting(top, settingsPath)
+	data, exists, target, err := readExisting(top, settingsPath)
 	if err != nil {
 		return initFile{}, err
 	}
@@ -207,11 +230,11 @@ func planSettings(top string) (initFile, error) {
 	}
 	switch {
 	case !exists:
-		return initFile{status: "created", path: settingsPath, content: after, notes: notes}, nil
+		return initFile{status: "created", path: settingsPath, target: target, content: after, notes: notes}, nil
 	case bytes.Equal(before, after):
 		return initFile{status: "unchanged", path: settingsPath, notes: notes}, nil
 	}
-	return initFile{status: "updated", path: settingsPath, content: after, notes: notes}, nil
+	return initFile{status: "updated", path: settingsPath, target: target, orig: data, content: after, notes: notes}, nil
 }
 
 // decodeObject parses exactly one JSON object; numbers stay as written.
@@ -291,13 +314,14 @@ func planInstructions(top, agent string) (initFile, error) {
 	rel := "AGENTS.md"
 	var data []byte
 	exists := false
+	target := filepath.Join(top, rel)
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
-		d, ok, err := readExisting(top, name)
+		d, ok, tgt, err := readExisting(top, name)
 		if err != nil {
 			return initFile{}, err
 		}
 		if ok {
-			rel, data, exists = name, d, true
+			rel, data, exists, target = name, d, true, tgt
 			break
 		}
 	}
@@ -328,11 +352,11 @@ func planInstructions(top, agent string) (initFile, error) {
 	}
 	switch {
 	case !exists:
-		return initFile{status: "created", path: rel, content: []byte(out)}, nil
+		return initFile{status: "created", path: rel, target: target, content: []byte(out)}, nil
 	case out == text:
 		return initFile{status: "unchanged", path: rel}, nil
 	}
-	return initFile{status: "updated", path: rel, content: []byte(out)}, nil
+	return initFile{status: "updated", path: rel, target: target, orig: data, content: []byte(out)}, nil
 }
 
 // markerOffsets lists where marker occurs in text outside fenced code blocks: a marker inside a
