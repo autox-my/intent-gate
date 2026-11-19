@@ -65,6 +65,14 @@ What `method: hook` attests is that Claude Code's hook runner called `post` afte
 
 **Fallback for the plan review only:** if `PreToolUse` can't show findings in time, run the plan review in `PostToolUse` and record its status and counts in the lock's `plan_review:` (plan-review.md §4), showing the findings in the `PostToolUse` message. That's weaker, because it comes after approval, but it still meets REQ-0016–0020.
 
+### 2.1 Ratify card (harnesses without plan approval)
+
+Some harnesses take plan approval over themselves (T3 Code captures `ExitPlanMode` and, since November 2026, has no plan mode), so `PostToolUse` on `ExitPlanMode` never fires there (checked 2026-11-20). Their question card still completes normally: the human's selection comes back as the tool result of `AskUserQuestion`. The agent can write the question but not the answer, which only the harness produces from the human's click, the same evidence as a plan-approval click. So the same hook also ratifies through a card:
+
+- The agent writes the plan to a file and asks one `AskUserQuestion` with header `IntentGate`, the question `Ratify the plan in <path> (sha256 <hex>)?` and the options `Ratify` and `Not yet`. `intentgate hook claude-code ratify-question <path>` prints that question exactly.
+- `PreToolUse` on that question drafts the criteria and runs the plan review, like `pre` for a plan; `PostToolUse` writes the lock only when the answer is `Ratify` and the file still hashes to `<hex>` (the agent can't swap the plan after asking). Any other question, header or answer writes nothing.
+- The lock records `method: hook`, source `claude-code-session`, and the root intent scoped as below, where a ratified card counts as an approved plan.
+
 Hooks for Codex, Cursor, Kiro and Spec Kit are Phase 2.
 
 ## 3. CLI paths, method `cli-confirm` or `issue`
