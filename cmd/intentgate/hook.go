@@ -91,6 +91,8 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 			return runPublish(args[1:], stdout, deps)
 		case "stats":
 			return runStats(args[1:], stdout, deps)
+		case "init":
+			return runInit(args[1:], stdout, deps)
 		}
 	}
 	if len(args) < 3 || args[0] != "hook" || args[1] != "claude-code" {
