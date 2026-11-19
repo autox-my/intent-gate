@@ -301,25 +301,30 @@ func planInstructions(top, agent string) (initFile, error) {
 			break
 		}
 	}
-	section := instructionsSection(agent)
 	text := string(data)
+	eol := "\n"
+	if i := strings.Index(text, "\n"); i > 0 && text[i-1] == '\r' {
+		eol = "\r\n"
+	}
+	section := strings.ReplaceAll(instructionsSection(agent), "\n", eol)
 	var out string
-	switch begin, end := strings.Index(text, sectionBegin), strings.Index(text, sectionEnd); {
-	case begin < 0 && end < 0:
+	begins, ends := markerOffsets(text, sectionBegin), markerOffsets(text, sectionEnd)
+	switch {
+	case len(begins) == 0 && len(ends) == 0:
 		out = text
 		if out != "" {
 			if !strings.HasSuffix(out, "\n") {
-				out += "\n"
+				out += eol
 			}
-			out += "\n"
+			out += eol
 		}
-		out += section + "\n"
-	case begin < 0 || end < begin:
+		out += section + eol
+	case len(begins) == 0 || len(ends) == 0 || ends[0] < begins[0]:
 		return initFile{}, fmt.Errorf("%s: the %s / %s markers are unpaired or out of order, left untouched", rel, sectionBegin, sectionEnd)
-	case strings.Count(text, sectionBegin) > 1 || strings.Count(text, sectionEnd) > 1:
+	case len(begins) > 1 || len(ends) > 1:
 		return initFile{}, fmt.Errorf("%s: more than one IntentGate section, left untouched", rel)
 	default:
-		out = text[:begin] + section + text[end+len(sectionEnd):]
+		out = text[:begins[0]] + section + text[ends[0]+len(sectionEnd):]
 	}
 	switch {
 	case !exists:
@@ -328,6 +333,20 @@ func planInstructions(top, agent string) (initFile, error) {
 		return initFile{status: "unchanged", path: rel}, nil
 	}
 	return initFile{status: "updated", path: rel, content: []byte(out)}, nil
+}
+
+// markerOffsets lists where marker occurs in text outside fenced code blocks: a marker inside a
+// fence (a documented example) is text, not a marker.
+func markerOffsets(text, marker string) []int {
+	var offs []int
+	for from := 0; ; {
+		i := strings.Index(text[from:], marker)
+		if i < 0 {
+			return offs
+		}
+		offs = append(offs, from+i)
+		from += i + len(marker)
+	}
 }
 
 // instructionsSection is the text between the markers, markers included, without a trailing newline.
