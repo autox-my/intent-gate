@@ -74,6 +74,8 @@ A spec adds no new requirements and restates none. It points at claims and desig
 4. Reviewer reviews the branch read-only; fixes are commits named `fix(<pkg>): … (review N of S-NN)`.
 5. Human merges. Agents never commit to `main` and never change the git identity.
 
+A slice that adds, renames or removes a stage artifact, a path or a command named in `docs/process/sdlc-map.yml` updates that YAML in the same slice; `scripts/check.sh` fails when the map and the repo disagree (`python3 -I scripts/sdlc-map.py` re-renders `docs/process/sdlc-map.md`).
+
 ### Rules for every worker
 
 - Read the spec and the files it points to; don't restate them.

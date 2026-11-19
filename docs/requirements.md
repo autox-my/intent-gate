@@ -1,5 +1,10 @@
 # IntentGate requirements: adoption source
 
+> **Archived: frozen adoption source, kept for history.** The requirements now live in `claims/`
+> (one obligation per file, managed with req), and **`claims/` is the source of truth**. This file
+> was read once, to draft the corpus, and is superseded. Do not edit it to change a requirement:
+> edit the claim. See `AGENTS.md`, "Requirements are managed with req".
+
 This document is the **adoption source** for the req corpus in `claims/`. Each bullet under
 *Phase 0 requirements* was drafted into one claim with `tools/adopt.py`. After adoption, **the
 corpus is authoritative**: change a requirement by editing its claim, not this file.
