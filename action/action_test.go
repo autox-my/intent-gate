@@ -414,6 +414,28 @@ func TestAction_Actionlint(t *testing.T) {
 	lint(t, sample, "action.yml")
 }
 
+// TestWorkflows_Actionlint runs actionlint over this repository's own workflows. It is skipped
+// without actionlint.
+func TestWorkflows_Actionlint(t *testing.T) {
+	bin, err := exec.LookPath("actionlint")
+	if err != nil {
+		t.Skip("actionlint not on PATH")
+	}
+	files, err := filepath.Glob(filepath.Join("..", ".github", "workflows", "*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no workflows found under .github/workflows: %v", err)
+	}
+	for _, name := range []string{"check.yml", "intentgate.yml"} {
+		if _, err := os.Stat(filepath.Join("..", ".github", "workflows", name)); err != nil {
+			t.Errorf("missing workflow %s: %v", name, err)
+		}
+	}
+	cmd := exec.Command(bin, append([]string{"-no-color"}, files...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Errorf("actionlint: %v\n%s", err, out)
+	}
+}
+
 // lint runs actionlint on a workflow in a scratch repository; withAction names the Action file to
 // copy to ./action/action.yml there so `uses: ./action` resolves.
 func lint(t *testing.T, workflow, withAction string) {

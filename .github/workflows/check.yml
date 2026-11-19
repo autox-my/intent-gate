@@ -1,0 +1,68 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  REQ_VERSION: v0.6.0
+  REQ_ASSET: req-161c336-x86_64-unknown-linux-gnu.tar.gz
+  # SHA-256 of the asset, read from the release's .sha256 file. A replaced asset fails the install.
+  REQ_SHA256: e54c46a0e5dd0cb843e4b01c098698196cc04e613acd451c383411a266e33d51
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # actions/setup-go v6.5.0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install req
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/req-download"
+          mkdir -p "$dir" "$RUNNER_TEMP/req-bin"
+          cd "$dir"
+          gh release download "$REQ_VERSION" --repo autox-my/req \
+            --pattern "$REQ_ASSET" --pattern "$REQ_ASSET.sha256"
+          # The pinned hash, not only the one beside the asset: both must agree with the download.
+          echo "$REQ_SHA256  $REQ_ASSET" | sha256sum -c -
+          sha256sum -c "$REQ_ASSET.sha256"
+          tar -xzf "$REQ_ASSET" -C "$RUNNER_TEMP/req-bin" req
+          echo "$RUNNER_TEMP/req-bin" >> "$GITHUB_PATH"
+
+      - name: Check the req build
+        run: |
+          set -euo pipefail
+          version=$(req --version)
+          echo "$version"
+          echo "$version" | grep -Eq 'claim_schema +req\.claim/4'
+          echo "$version" | grep -Eq 'rules_v +9'
+
+      - name: Gate
+        run: scripts/check.sh
+
+      - name: Requirements that moved
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: req diff --base "origin/$BASE_REF" --fail-on weakened,removed,reshaped
