@@ -387,3 +387,214 @@ func TestUsage_ListsAllCommands(t *testing.T) {
 		}
 	}
 }
+
+// ---- review 1 of S-16 ----
+
+func TestInit_FencedMarkersAreText(t *testing.T) {
+	t.Run("a documented example pair is not replaced", func(t *testing.T) {
+		r := newVRepo(t)
+		doc := "# Agents\n\nHow to mark a section:\n\n```md\n" + markBegin + "\nexample\n" + markEnd + "\n```\n"
+		r.write("AGENTS.md", doc)
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		got := r.read("AGENTS.md")
+		if !strings.HasPrefix(got, doc) {
+			t.Errorf("the fenced example changed:\n%s", got)
+		}
+		if strings.Count(got, markBegin) != 2 || !strings.Contains(got, "## IntentGate") {
+			t.Errorf("the real section was not appended after the example:\n%s", got)
+		}
+	})
+	t.Run("a fenced single marker is not unpaired", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write("AGENTS.md", "~~~\n"+markBegin+"\n~~~\n")
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d, want 0; %s", code, errs)
+		}
+	})
+	t.Run("the real pair is replaced and a fenced pair after it is kept", func(t *testing.T) {
+		r := newVRepo(t)
+		fenced := "````\n" + markBegin + "\nexample\n" + markEnd + "\n````\n"
+		r.write("AGENTS.md", markBegin+"\nold text\n"+markEnd+"\n\n"+fenced)
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		got := r.read("AGENTS.md")
+		if strings.Contains(got, "old text") || !strings.HasSuffix(got, "\n\n"+fenced) {
+			t.Errorf("unexpected AGENTS.md:\n%s", got)
+		}
+	})
+}
+
+func TestInit_AllOrNothing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	r := newVRepo(t)
+	r.write("AGENTS.md", "# Agents\n")
+	if err := os.Chmod(filepath.Join(r.dir, "AGENTS.md"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := initRun(t, r.dir)
+	if code != 3 {
+		t.Fatalf("exit %d, want 3; stderr: %s", code, errs)
+	}
+	if !strings.Contains(errs, "AGENTS.md") {
+		t.Errorf("stderr does not name the file: %s", errs)
+	}
+	for _, p := range []string{".claude", ".intentgate.yml"} {
+		if r.exists(p) {
+			t.Errorf("%s was written although AGENTS.md could not be", p)
+		}
+	}
+	if got := r.read("AGENTS.md"); got != "# Agents\n" {
+		t.Errorf("AGENTS.md changed: %q", got)
+	}
+	left, _ := filepath.Glob(filepath.Join(r.dir, "*.tmp*"))
+	if len(left) > 0 {
+		t.Errorf("temp files left behind: %v", left)
+	}
+}
+
+func TestInit_Symlinks(t *testing.T) {
+	t.Run("outside the top level is exit 3", func(t *testing.T) {
+		r := newVRepo(t)
+		outside := filepath.Join(t.TempDir(), "elsewhere.md")
+		if err := os.WriteFile(outside, []byte("# Elsewhere\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(r.dir, "AGENTS.md")); err != nil {
+			t.Skipf("no symlinks: %v", err)
+		}
+		code, _, errs := initRun(t, r.dir)
+		if code != 3 || !strings.Contains(errs, "AGENTS.md") {
+			t.Errorf("exit %d, want 3 naming AGENTS.md; stderr: %s", code, errs)
+		}
+		if b, _ := os.ReadFile(outside); string(b) != "# Elsewhere\n" {
+			t.Errorf("the file outside the repository was written: %q", b)
+		}
+		if r.exists(".claude") || r.exists(".intentgate.yml") {
+			t.Error("init wrote other files after refusing the symlink")
+		}
+	})
+	t.Run("dangling is exit 3", func(t *testing.T) {
+		r := newVRepo(t)
+		if err := os.Symlink("nowhere.md", filepath.Join(r.dir, "AGENTS.md")); err != nil {
+			t.Skipf("no symlinks: %v", err)
+		}
+		code, _, errs := initRun(t, r.dir)
+		if code != 3 || !strings.Contains(errs, "AGENTS.md") {
+			t.Errorf("exit %d, want 3 naming AGENTS.md; stderr: %s", code, errs)
+		}
+		if fi, err := os.Lstat(filepath.Join(r.dir, "AGENTS.md")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("the dangling symlink was replaced: %v", err)
+		}
+	})
+	t.Run("inside is written through", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write("docs/agents.md", "# Agents\n")
+		if err := os.Symlink("docs/agents.md", filepath.Join(r.dir, "AGENTS.md")); err != nil {
+			t.Skipf("no symlinks: %v", err)
+		}
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		if fi, err := os.Lstat(filepath.Join(r.dir, "AGENTS.md")); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Errorf("the symlink was replaced by a regular file: %v", err)
+		}
+		if !strings.Contains(r.read("docs/agents.md"), markBegin) {
+			t.Error("the section was not written through to docs/agents.md")
+		}
+	})
+}
+
+func TestInit_ExistingHookUnderAnyMatcher(t *testing.T) {
+	for _, matcher := range []string{"Bash", "", "ExitPlanMode|Bash"} {
+		r := newVRepo(t)
+		r.write(".claude/settings.json", `{"hooks": {
+  "PreToolUse": [{"matcher": "`+matcher+`", "hooks": [{"type": "command", "command": "/usr/local/bin/intentgate hook claude-code pre"}]}],
+  "PostToolUse": [{"matcher": "`+matcher+`", "hooks": [{"type": "command", "command": "intentgate hook claude-code post"}]}]
+}}`)
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("matcher %q: exit %d; %s", matcher, code, errs)
+		}
+		m := r.settings()
+		for _, ev := range []string{"PreToolUse", "PostToolUse"} {
+			if got := hookCommands(t, m, ev); len(got) != 1 {
+				t.Errorf("matcher %q: %s commands = %q, want the existing one only", matcher, ev, got)
+			}
+		}
+	}
+}
+
+func TestInit_LineEndings(t *testing.T) {
+	bare := regexp.MustCompile(`[^\r]\n`)
+	t.Run("appended section follows CRLF", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write("AGENTS.md", "# Agents\r\n\r\nRules.\r\n")
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		got := r.read("AGENTS.md")
+		if bare.MatchString(got) || !strings.Contains(got, markBegin+"\r\n## IntentGate\r\n") {
+			t.Errorf("mixed line endings:\n%q", got)
+		}
+	})
+	t.Run("replaced section follows CRLF and is stable", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write("AGENTS.md", "# Agents\r\n\r\n"+markBegin+"\r\nold\r\n"+markEnd+"\r\n")
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		got := r.read("AGENTS.md")
+		if bare.MatchString(got) || strings.Contains(got, "old") {
+			t.Errorf("mixed line endings or not replaced:\n%q", got)
+		}
+		if code, out, errs := initRun(t, r.dir); code != 0 || r.read("AGENTS.md") != got || !lineWith(out, "unchanged", "AGENTS.md") {
+			t.Errorf("second run changed the file (exit %d): %s\n%s", code, errs, out)
+		}
+	})
+	t.Run("LF files stay LF", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write("AGENTS.md", "# Agents\n")
+		if code, _, errs := initRun(t, r.dir); code != 0 {
+			t.Fatalf("exit %d; %s", code, errs)
+		}
+		if strings.Contains(r.read("AGENTS.md"), "\r") {
+			t.Error("a CR appeared in an LF file")
+		}
+	})
+}
+
+func TestInit_NewHookEntryKeyOrder(t *testing.T) {
+	r := newVRepo(t)
+	if code, _, errs := initRun(t, r.dir); code != 0 {
+		t.Fatalf("exit %d; %s", code, errs)
+	}
+	type fragment struct {
+		Hooks map[string][]json.RawMessage `json:"hooks"`
+	}
+	var want, got fragment
+	if err := json.Unmarshal(printConfig(), &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(r.read(".claude/settings.json")), &got); err != nil {
+		t.Fatal(err)
+	}
+	compact := func(b json.RawMessage) string {
+		var c bytes.Buffer
+		if err := json.Compact(&c, b); err != nil {
+			t.Fatal(err)
+		}
+		return c.String()
+	}
+	for _, ev := range []string{"PreToolUse", "PostToolUse"} {
+		if len(got.Hooks[ev]) != 1 || len(want.Hooks[ev]) != 1 {
+			t.Fatalf("%s: got %d entries, want 1", ev, len(got.Hooks[ev]))
+		}
+		if g, w := compact(got.Hooks[ev][0]), compact(want.Hooks[ev][0]); g != w {
+			t.Errorf("%s entry differs from print-config's:\n got  %s\n want %s", ev, g, w)
+		}
+	}
+}
