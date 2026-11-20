@@ -45,7 +45,7 @@ if need req; then
   # The release fold: every declared variant's gate against the signed Baseline(s) under baselines/,
   # plus completeness. Signing a Baseline is the human's act (scripts/sign-baseline.sh), never an agent's.
   step "req check" req check --test-report build/junit.xml
-  step "req baseline" req baseline --verify baselines/phase0-2.json
+  step "req baseline" req baseline --verify baselines/phase0-3.json
 fi
 
 [ "$status" -eq 0 ] && echo "verdict: GREEN" || echo "verdict: RED"
