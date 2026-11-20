@@ -167,7 +167,7 @@ artifacts:
     paths: ["scripts/check.sh", "action/action.yml", ".github/workflows/check.yml"]
   - playbook: "closing the loop"
     build: "Handoffs, coverage explorer."
-    product: "Audit events, `intentgate stats` (amendment rate)."
+    product: "Audit events, `intentgate stats` (amendment rate, merged PRs and lock coverage)."
     state: partial
     paths: ["docs/handoffs/*", "scripts/coverage-explorer.py"]
     commands: ["stats"]

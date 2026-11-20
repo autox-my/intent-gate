@@ -37,6 +37,10 @@ type statsDoc struct {
 	Amended                int           `json:"amended"`
 	AmendmentRate          string        `json:"amendment_rate"`
 	AmendmentRatio         string        `json:"amendment_ratio"`
+	MergedPRs              int           `json:"merged_prs"`
+	MergedPRsWithLock      int           `json:"merged_prs_with_lock"`
+	LockCoverage           string        `json:"lock_coverage"`
+	LockCoverageRatio      string        `json:"lock_coverage_ratio"`
 	Methods                []methodCount `json:"methods"`
 	MedianReviewDurationMS *int          `json:"median_review_duration_ms"`
 }
@@ -109,11 +113,17 @@ func computeStats(dir string, days int) (statsDoc, error) {
 		return statsDoc{}, err
 	}
 
+	merges, err := gitx.FirstParentMerges(dir, "HEAD")
+	if err != nil {
+		return statsDoc{}, err
+	}
+
 	doc := statsDoc{
 		Schema: statsSchema, SinceDays: days, WindowStart: utcSeconds(start), WindowEnd: utcSeconds(headTime), Head: head,
 		Methods: []methodCount{},
 	}
 	methods := map[string]int{}
+	lockCommits := map[string]bool{} // the adding commits of the locks counted
 	var durations []int
 	for _, a := range adds {
 		if a.Time.Before(start) || a.Time.After(headTime) {
@@ -132,6 +142,7 @@ func computeStats(dir string, days int) (statsDoc, error) {
 			continue
 		}
 		doc.Locks++
+		lockCommits[a.Commit] = true
 		for _, am := range l.Amendments {
 			if am.Kind == lock.KindAddGlob {
 				doc.Amended++
@@ -148,6 +159,20 @@ func computeStats(dir string, days int) (statsDoc, error) {
 	doc.AmendmentRate = notAvailable
 	if doc.Locks > 0 {
 		doc.AmendmentRate = fmt.Sprintf("%.4f", float64(doc.Amended)/float64(doc.Locks))
+	}
+	for _, m := range merges {
+		if m.Time.Before(start) || m.Time.After(headTime) {
+			continue
+		}
+		doc.MergedPRs++
+		if lockCommits[m.Commit] {
+			doc.MergedPRsWithLock++
+		}
+	}
+	doc.LockCoverageRatio = fmt.Sprintf("%d/%d", doc.MergedPRsWithLock, doc.MergedPRs)
+	doc.LockCoverage = notAvailable
+	if doc.MergedPRs > 0 {
+		doc.LockCoverage = fmt.Sprintf("%.4f", float64(doc.MergedPRsWithLock)/float64(doc.MergedPRs))
 	}
 	for m, n := range methods {
 		doc.Methods = append(doc.Methods, methodCount{m, n})
@@ -170,6 +195,7 @@ func statsText(d statsDoc) string {
 	} else {
 		fmt.Fprintf(&b, "footprint-amendment rate: %s (%s)\n", d.AmendmentRate, d.AmendmentRatio)
 	}
+	fmt.Fprintf(&b, "merged PRs: %d, with a lock: %d (coverage %s)\n", d.MergedPRs, d.MergedPRsWithLock, d.LockCoverage)
 	parts := []string{}
 	for _, m := range d.Methods {
 		parts = append(parts, fmt.Sprintf("%s %d", m.Method, m.Count))

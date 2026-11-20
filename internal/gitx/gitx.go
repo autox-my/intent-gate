@@ -395,7 +395,36 @@ type Merge struct {
 	Time   time.Time // the commit's committer time, UTC
 }
 
-// FirstParentMerges lists the merge commits on the first-parent history of rev, newest first.
+// FirstParentMerges lists the commits on the first-parent history of rev that have two or more
+// parents (merged pull requests, for a repository that merges with merge commits), newest first.
+// A merge inside a merged side branch is not on the first-parent line and is not listed.
 func FirstParentMerges(dir, rev string) ([]Merge, error) {
-	return nil, nil // stub: the S-19 tests fail until this is written
+	if err := checkRev(rev); err != nil {
+		return nil, err
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.run("log", "--first-parent", "--merges", "--format=%H%x00%ct", "-z", rev, "--")
+	if err != nil {
+		return nil, err
+	}
+	// <hash> NUL <ct> NUL per merge, newest first.
+	toks := strings.Split(string(out), "\x00")
+	if n := len(toks); n > 0 && toks[n-1] == "" {
+		toks = toks[:n-1]
+	}
+	if len(toks)%2 != 0 {
+		return nil, errors.New("git log: cannot parse the output")
+	}
+	merges := []Merge{}
+	for i := 0; i < len(toks); i += 2 {
+		secs, err := strconv.ParseInt(strings.TrimSpace(toks[i+1]), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("git log: cannot read the commit time of %s: %w", toks[i], err)
+		}
+		merges = append(merges, Merge{Commit: strings.TrimSpace(toks[i]), Time: time.Unix(secs, 0).UTC()})
+	}
+	return merges, nil
 }
