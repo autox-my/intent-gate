@@ -148,9 +148,28 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 	if err != nil {
 		return t.fail(exitNotConfirmed, "no lock: cannot read the plan: %v", err)
 	}
-	criteria, maskedPlan, err := draftAndMask(string(plan))
+	drafted, maskedPlan, err := draftPlanMasked(string(plan))
 	if err != nil {
 		return t.fail(draftCode(err), "%v", err)
+	}
+	criteria := drafted.Criteria
+
+	if drafted.Intent != "" { // a committed intent is the root intent (intent-lock.md §6)
+		if hasPrompt {
+			return t.fail(exitUsage, "no lock: --prompt and the plan's intent: are two root intents; give one")
+		}
+		top, email, baseRef, err := gitFacts(deps)
+		if err != nil {
+			return t.fail(exitUnverifiable, "intentgate lock: %v", err)
+		}
+		ci, err := loadCommittedIntent(top, drafted.Intent)
+		if err != nil {
+			return t.fail(exitUnverifiable, "%v", err)
+		}
+		return t.confirmAndWrite(pending{
+			Top: top, BaseRef: baseRef, Criteria: criteria, RootIntent: ci.Text, Plan: maskedPlan, Committed: &ci,
+			Source: lock.SourceCommittedIntent, Method: "cli-confirm", Ratifier: "git:" + email, Intro: ci.describe(),
+		})
 	}
 
 	var rootIntent string
@@ -180,29 +199,27 @@ func runLockPlan(t *term, planPath, promptPath string, hasPrompt bool) int {
 // errScan is a failed secret scan; a drafting error is anything else.
 var errScan = errors.New("secret scan failed, nothing written")
 
-// draftMasked drafts criteria from a plan after the plan has been through the secret scan
-// (ratification.md §5): criterion text and footprints are committed in the lock and printed, so a
-// secret in the plan must never reach them.
-func draftMasked(plan string) ([]lock.Criterion, error) {
-	criteria, _, err := draftAndMask(plan)
-	return criteria, err
-}
-
-// draftAndMask is draftMasked that also returns the masked plan, so the plan review reuses it:
-// the plan is scanned once.
-func draftAndMask(plan string) ([]lock.Criterion, string, error) {
+// draftPlanMasked drafts criteria, and reads the block's intent: key, from a plan after the plan has
+// been through the secret scan (ratification.md §5): criterion text and footprints are committed in
+// the lock and printed, so a secret in the plan must never reach them. It also returns the masked
+// plan, so the plan review reuses it: the plan is scanned once.
+func draftPlanMasked(plan string) (ratify.Drafted, string, error) {
 	m, _, err := ratify.Mask(plan)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", errScan, err)
+		return ratify.Drafted{}, "", fmt.Errorf("%w: %v", errScan, err)
 	}
-	criteria, err := ratify.DraftCriteria(m.String())
-	return criteria, m.String(), err
+	d, err := ratify.DraftPlan(m.String())
+	return d, m.String(), err
 }
 
-// draftCode is the exit code for an error from draftMasked: 3 for a failed scan, else 1.
+// draftCode is the exit code for an error from draftPlanMasked: 3 for a failed scan, 2 for an intent:
+// value that breaks the path rule (a usage error), else 1.
 func draftCode(err error) int {
-	if errors.Is(err, errScan) {
+	switch {
+	case errors.Is(err, errScan):
 		return exitUnverifiable
+	case errors.Is(err, ratify.ErrIntent):
+		return exitUsage
 	}
 	return exitNotConfirmed
 }
@@ -216,7 +233,8 @@ type pending struct {
 	Source       string // root_intent.source
 	Method       string // ratification.method
 	Ratifier     string
-	Intro        string // printed before the criteria, if not empty
+	Intro        string           // printed before the criteria, if not empty
+	Committed    *committedIntent // set when the root intent is a committed intent file: RootIntent is its text
 }
 
 // confirmAndWrite is the step the lock paths share (ratification.md §1, steps 5-7): show the
@@ -251,10 +269,11 @@ func (t *term) confirmAndWrite(p pending) int {
 		Method:           p.Method,
 		ReviewDurationMS: reviewMS(shown, answered),
 		PlanReview:       planReviewRecord(res),
+		Committed:        p.Committed.record(),
 	})
 	if err != nil {
 		code := exitNotConfirmed
-		if strings.Contains(err.Error(), "secret scan failed") {
+		if strings.Contains(err.Error(), "secret scan failed") || errors.Is(err, ratify.ErrSecretInIntent) {
 			code = exitUnverifiable
 		}
 		return t.fail(code, "intentgate lock: %v", err)

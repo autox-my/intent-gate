@@ -63,6 +63,12 @@ links:
 - element: docs/design/intent-lock.md
   claim_id: REQ-0022
   statement: The PR check shall treat an intent lock as valid for no more than 14 days.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0043
+  statement: The lock command shall accept a committed intent file as the root intent of an intent lock.
+- element: docs/design/intent-lock.md
+  claim_id: REQ-0044
+  statement: The intent lock shall record the path and blob hash of its committed intent file.
 - element: docs/design/plan-review.md
   claim_id: REQ-0016
   statement: The plan review shall report what the root intent asks for that the plan omits.

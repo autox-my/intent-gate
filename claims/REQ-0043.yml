@@ -1,0 +1,14 @@
+# Ratified by the human on 2026-11-20 (ADR 0006).
+schema: req.claim/4
+claim_id: REQ-0043
+statement: "The lock command shall accept a committed intent file as the root intent of an intent lock."
+applicability: []
+rationale:
+  source: "docs/adr/0006-committed-intent-as-root-intent.md"
+  date: 2026-11-20
+  rejected_alternatives: []
+  assumptions: []
+relations: []
+tests:
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLockFromPlan_CommittedIntent"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_CommittedIntent"

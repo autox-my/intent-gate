@@ -1,0 +1,51 @@
+schema: intentgate.lock/1
+id: 01M7WNNAAS0HJPZQPYGH47G3QW
+revision: 1
+base_ref: main
+root_intent:
+  sha256: ff38500c14b143cea812ffa689719ad933207ca4c64504d3920414df07b440e4
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: 'REQ-0043: The lock command shall accept a committed intent file as the root intent of an intent lock.'
+    footprint:
+      - cmd/intentgate/**
+      - internal/lock/**
+      - internal/ratify/**
+      - internal/hooks/claudecode/**
+      - internal/gitx/**
+      - schema/intentgate.lock.v1.json
+      - claims/REQ-0043.yml
+      - docs/design/intent-lock.md
+      - .req/satisfied
+  - id: C2
+    text: 'REQ-0044: The intent lock shall record the path and blob hash of its committed intent file.'
+    footprint:
+      - internal/lock/**
+      - schema/intentgate.lock.v1.json
+      - claims/REQ-0044.yml
+      - docs/design/intent-lock.md
+      - .req/satisfied
+  - id: C3
+    text: The next Baseline (phase0-3) attests REQ-0043 and REQ-0044, and scripts/check.sh verifies it
+    footprint:
+      - baselines/**
+      - decisions/**
+      - scripts/check.sh
+      - docs/glossary.md
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-20T14:27:10Z"
+  method: hook
+  review_duration_ms: 217334
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:12a2981c86a2173067377407b62e4786c9a2d4b38234ed1175471f1eb559881c

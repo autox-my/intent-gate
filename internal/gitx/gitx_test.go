@@ -606,3 +606,54 @@ func merge2(t *testing.T, dir, branch string, side, mergeAt time.Time) string {
 	commitOn(t, dir, mergeAt, "merge", "-q", "--no-ff", branch, "-m", "merge "+branch)
 	return git(t, dir, "rev-parse", "HEAD")
 }
+
+// S-22 support: BlobAt and CatBlob give the blob a committed intent is locked to.
+func TestGitx_BlobAt(t *testing.T) {
+	isolate(t)
+	dir := repoOn(t, "main")
+	raw := []byte("# intent\r\nno trailing newline")
+	put(t, dir, "intents/a-b.md", raw)
+	put(t, dir, "exec.sh", []byte("#!/bin/sh\n"))
+	if err := os.Symlink("intents/a-b.md", filepath.Join(dir, "link.md")); err != nil {
+		t.Skip("no symlinks:", err)
+	}
+	commitAt(t, dir, "c", "2026-11-18T09:00:00Z")
+	sub := filepath.Join(dir, "intents")
+	want := git(t, dir, "rev-parse", "HEAD:intents/a-b.md")
+
+	if got, found, err := BlobAt(dir, "HEAD", "intents/a-b.md"); err != nil || !found || got != want {
+		t.Errorf("BlobAt = %q, %v, %v; want %q", got, found, err, want)
+	}
+	if got, found, err := BlobAt(sub, "HEAD", "intents/a-b.md"); err != nil || !found || got != want {
+		t.Errorf("from a subdirectory: %q, %v, %v", got, found, err)
+	}
+	if got, found, err := BlobAt(dir, "HEAD", "intents/missing.md"); err != nil || found || got != "" {
+		t.Errorf("absent: %q, %v, %v; want empty, false, nil", got, found, err)
+	}
+	for _, p := range []string{"link.md", "intents"} {
+		if _, _, err := BlobAt(dir, "HEAD", p); err == nil {
+			t.Errorf("%s: a symlink or a directory is not a file: want an error", p)
+		}
+	}
+	if _, _, err := BlobAt(dir, "HEAD", "exec.sh"); err != nil {
+		t.Errorf("an executable file: %v", err)
+	}
+	if _, _, err := BlobAt(dir, "no-such-rev", "exec.sh"); err == nil {
+		t.Error("a bad rev gave no error")
+	}
+	if _, _, err := BlobAt(dir, "--all", "exec.sh"); err == nil {
+		t.Error("a rev that looks like an option gave no error")
+	}
+
+	if got, err := CatBlob(dir, want); err != nil || !bytes.Equal(got, raw) {
+		t.Errorf("CatBlob = %q, %v; want the exact bytes %q", got, err, raw)
+	}
+	for _, bad := range []string{"", "HEAD", "--help", want[:39], strings.ToUpper(want)} {
+		if _, err := CatBlob(dir, bad); err == nil {
+			t.Errorf("CatBlob(%q) gave no error", bad)
+		}
+	}
+	if _, err := CatBlob(dir, strings.Repeat("0", 40)); err == nil {
+		t.Error("an unknown object gave no error")
+	}
+}

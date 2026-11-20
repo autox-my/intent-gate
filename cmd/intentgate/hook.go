@@ -208,11 +208,23 @@ type pendingRecord struct {
 // pre is PreToolUse for a plan (ExitPlanMode's, or the ratify card's plan file): draft, review, show,
 // and save the pending record.
 func pre(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Output, error) {
-	criteria, maskedPlan, err := draftAndMask(plan)
+	drafted, maskedPlan, err := draftPlanMasked(plan)
 	if err != nil {
 		return claudecode.Output{}, err
 	}
-	res, scopeLine := hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
+	criteria := drafted.Criteria
+	var res planreview.Result
+	var scopeLine string
+	if drafted.Intent != "" { // a committed intent is the root intent: the review reads its text
+		ci, err := hookCommittedIntent(in, drafted.Intent, deps)
+		if err != nil {
+			return claudecode.Output{}, err
+		}
+		res = reviewStep(deps, maskedPlan, func() (string, error) { return ci.Text, nil })
+		scopeLine = ci.describe()
+	} else {
+		res, scopeLine = hookPlanReview(in, maskedPlan, deps) // bounded by the budget; never fails the hook
+	}
 	sum := sha256.Sum256([]byte(plan))
 	data, err := json.Marshal(pendingRecord{
 		FinishedAt: deps.Now().UTC().Format(time.RFC3339Nano),
@@ -252,21 +264,29 @@ func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outp
 	if plan == "" {
 		return claudecode.Output{}, errors.New("the approved plan is missing from the hook input")
 	}
-	criteria, err := draftMasked(plan) // the approved plan wins over whatever pre saw
+	drafted, _, err := draftPlanMasked(plan) // the approved plan wins over whatever pre saw
 	if err != nil {
 		return claudecode.Output{}, err
 	}
-	tdata, err := os.ReadFile(in.TranscriptPath)
-	if err != nil {
-		return claudecode.Output{}, fmt.Errorf("reading the transcript: %w", err)
-	}
-	scope, err := claudecode.RootIntentScope(tdata, in.ToolUseID)
-	if err != nil {
-		return claudecode.Output{}, err
-	}
-	rootIntent, draftedBy := scope.Text, scope.DraftedBy
-	if strings.TrimSpace(rootIntent) == "" {
-		return claudecode.Output{}, errors.New("the transcript has no human turns to lock")
+	criteria := drafted.Criteria
+	var (
+		rootIntent, draftedBy, scopeLine string
+		source                           = "claude-code-session"
+		committed                        *committedIntent
+	)
+	if drafted.Intent == "" {
+		tdata, err := os.ReadFile(in.TranscriptPath)
+		if err != nil {
+			return claudecode.Output{}, fmt.Errorf("reading the transcript: %w", err)
+		}
+		scope, err := claudecode.RootIntentScope(tdata, in.ToolUseID)
+		if err != nil {
+			return claudecode.Output{}, err
+		}
+		rootIntent, draftedBy, scopeLine = scope.Text, scope.DraftedBy, scope.Describe()
+		if strings.TrimSpace(rootIntent) == "" {
+			return claudecode.Output{}, errors.New("the transcript has no human turns to lock")
+		}
 	}
 	if in.CWD == "" {
 		return claudecode.Output{}, errors.New("the hook input has no cwd")
@@ -274,6 +294,18 @@ func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outp
 	top, err := deps.Git.TopLevel(in.CWD)
 	if err != nil {
 		return claudecode.Output{}, err
+	}
+	if drafted.Intent != "" { // the root intent is a committed file, not the transcript's human turns
+		ci, err := loadCommittedIntent(top, drafted.Intent)
+		if err != nil {
+			return claudecode.Output{}, err
+		}
+		committed, rootIntent, source, scopeLine = &ci, ci.Text, lock.SourceCommittedIntent, ci.describe()
+		if tdata, err := os.ReadFile(in.TranscriptPath); err == nil { // drafted_by is best effort here
+			if scope, err := claudecode.RootIntentScope(tdata, in.ToolUseID); err == nil {
+				draftedBy = scope.DraftedBy
+			}
+		}
 	}
 	email, err := deps.Git.UserEmail(in.CWD)
 	if err != nil {
@@ -299,7 +331,8 @@ func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outp
 	l, masked, err := ratify.MaskAndBuild(nil, rootIntent, ratify.BuildInput{
 		ID:               id,
 		BaseRef:          baseRef,
-		Source:           "claude-code-session",
+		Source:           source,
+		Committed:        committed.record(),
 		Criteria:         criteria,
 		Ratifier:         "git:" + email,
 		RatifiedAt:       now,
@@ -320,8 +353,20 @@ func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outp
 	if pr := l.PlanReview; pr != nil {
 		msg += fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", pr.Status, *pr.Omissions, *pr.Additions, *pr.Weakenings)
 	}
-	msg += "\n" + scope.Describe()
+	msg += "\n" + scopeLine
 	return claudecode.Output{SystemMessage: msg}, nil
+}
+
+// hookCommittedIntent loads the committed intent a plan names, in the repository of the hook's cwd.
+func hookCommittedIntent(in claudecode.Input, path string, deps Deps) (committedIntent, error) {
+	if in.CWD == "" {
+		return committedIntent{}, errors.New("the hook input has no cwd")
+	}
+	top, err := deps.Git.TopLevel(in.CWD)
+	if err != nil {
+		return committedIntent{}, err
+	}
+	return loadCommittedIntent(top, path)
 }
 
 var safeComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)

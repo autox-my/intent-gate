@@ -162,10 +162,14 @@ func runLockIssue(t *term, n int, repoFlag string) int {
 	}
 
 	text, included := issueText(issue, comments)
-	criteria, err := draftMasked(text)
+	drafted, _, err := draftPlanMasked(text)
 	if err != nil {
 		return t.fail(draftCode(err), "%v", err)
 	}
+	if drafted.Intent != "" { // the issue is its own root intent (intent-lock.md §6)
+		return t.fail(exitUsage, "no lock: an issue is its own root intent; remove intent: from its intentgate block")
+	}
+	criteria := drafted.Criteria
 	top, err := deps.Git.TopLevel(deps.Dir)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate lock: %v", err)

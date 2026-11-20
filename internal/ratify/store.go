@@ -24,7 +24,9 @@ type Store struct {
 // and then the lock <RepoRoot>/.intent/<id>.yml, each created exclusively (never overwritten). It
 // refuses, writing nothing, when the lock is invalid or its hash doesn't verify, when the SHA-256
 // of maskedRootIntent isn't l.RootIntent.SHA256, or when either file for this id already exists. If
-// the lock can't be written, the record this call wrote is removed again.
+// the lock can't be written, the record this call wrote is removed again. A lock whose source is
+// committed-intent has no record: git holds the text (intent-lock.md §6), and only the lock is
+// written; the text must still match root_intent.sha256.
 func (s Store) Write(l lock.Lock, maskedRootIntent Masked) error {
 	if ps := lock.Validate(l); len(ps) > 0 {
 		return fmt.Errorf("ratify: refusing to write an invalid lock: %s", ps[0])
@@ -49,20 +51,28 @@ func (s Store) Write(l lock.Lock, maskedRootIntent Masked) error {
 		return fmt.Errorf("ratify: %w", err)
 	}
 
-	recDir := filepath.Join(s.StateDir, "locks", l.ID)
-	if err := os.MkdirAll(recDir, 0o700); err != nil {
-		return fmt.Errorf("ratify: %w", err)
+	var recPath string // "" for a committed intent: there is no record
+	if l.RootIntent.Source != lock.SourceCommittedIntent {
+		recDir := filepath.Join(s.StateDir, "locks", l.ID)
+		if err := os.MkdirAll(recDir, 0o700); err != nil {
+			return fmt.Errorf("ratify: %w", err)
+		}
+		recPath = filepath.Join(recDir, "root-intent.md")
+		if err := createExclusive(recPath, []byte(maskedRootIntent.text), 0o600); err != nil {
+			return err
+		}
 	}
-	recPath := filepath.Join(recDir, "root-intent.md")
-	if err := createExclusive(recPath, []byte(maskedRootIntent.text), 0o600); err != nil {
-		return err
+	removeRecord := func() {
+		if recPath != "" {
+			_ = os.Remove(recPath) // the record is ours: createExclusive got it, so no earlier lock owns it
+		}
 	}
 	if err := os.MkdirAll(lockDir, 0o755); err != nil {
-		_ = os.Remove(recPath)
+		removeRecord()
 		return fmt.Errorf("ratify: %w", err)
 	}
 	if err := createExclusive(lockPath, data, 0o644); err != nil {
-		_ = os.Remove(recPath) // the record is ours: createExclusive got it, so no earlier lock owns it
+		removeRecord()
 		return err
 	}
 	return nil
@@ -185,7 +195,7 @@ func amendmentsEqual(a, b []lock.Amendment) bool {
 }
 
 func sameRootIntent(a, b lock.RootIntent) bool {
-	if a.SHA256 != b.SHA256 || a.Source != b.Source || (a.Redactions == nil) != (b.Redactions == nil) {
+	if a.SHA256 != b.SHA256 || a.Source != b.Source || a.Path != b.Path || a.Blob != b.Blob || (a.Redactions == nil) != (b.Redactions == nil) {
 		return false
 	}
 	return a.Redactions == nil || *a.Redactions == *b.Redactions

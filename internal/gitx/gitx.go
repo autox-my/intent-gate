@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -371,6 +372,62 @@ func LockAdditions(dir, rev string) ([]LockAddition, error) {
 		return adds[i].Path < adds[j].Path
 	})
 	return adds, nil
+}
+
+// BlobAt returns the object id of the regular file at path (relative to the repository root) in
+// rev, the id `git rev-parse <rev>:<path>` gives. A path that does not exist in rev is not an
+// error: found is false. A bad rev, a symbolic link, a submodule or a directory at path, and any
+// other git failure are errors.
+func BlobAt(dir, rev, path string) (blob string, found bool, err error) {
+	if err := checkRev(rev); err != nil {
+		return "", false, err
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return "", false, err
+	}
+	out, err := r.run("--literal-pathspecs", "ls-tree", "-z", "--full-tree", rev, "--", path)
+	if err != nil {
+		return "", false, err
+	}
+	if len(out) == 0 {
+		return "", false, nil
+	}
+	// "<mode> blob <id>\t<path>\x00"
+	head, _, _ := strings.Cut(string(out), "\t")
+	fields := strings.Fields(head)
+	if len(fields) != 3 {
+		return "", false, fmt.Errorf("git ls-tree: cannot parse the output for %s in %s", path, rev)
+	}
+	if fields[0] == "120000" {
+		return "", false, fmt.Errorf("%s is a symlink in %s; commit the file itself", path, rev)
+	}
+	if !strings.HasPrefix(fields[0], "100") || fields[1] != "blob" || !objectIDRE.MatchString(fields[2]) {
+		return "", false, fmt.Errorf("git ls-tree: %s in %s is not a regular file", path, rev)
+	}
+	return fields[2], true, nil
+}
+
+// objectIDRE is a full git object id: 40 hex characters (SHA-1) or 64 (SHA-256).
+var objectIDRE = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
+
+// CatBlob returns the content of the blob with the given full object id (`git cat-file blob`).
+func CatBlob(dir, blob string) ([]byte, error) {
+	if !objectIDRE.MatchString(blob) {
+		return nil, fmt.Errorf("invalid blob id %q", blob)
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return nil, err
+	}
+	data, err := r.run("cat-file", "blob", blob)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		data = []byte{}
+	}
+	return data, nil
 }
 
 // Resolve returns the full object name of the commit rev names.

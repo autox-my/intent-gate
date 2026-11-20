@@ -1,6 +1,7 @@
 package ratify
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -70,6 +71,28 @@ func gitleaksDetector(text string) ([]Finding, error) {
 		out = append(out, Finding{RuleID: f.RuleID, Secret: f.Secret})
 	}
 	return out, nil
+}
+
+// ErrSecretInIntent is the finding of ScanCommitted: a committed intent holds what looks like a
+// secret. The file is already public, so masking it in the lock would hide nothing; the fix is in
+// the file and its history (intent-lock.md §6).
+var ErrSecretInIntent = errors.New("the committed intent contains what looks like a secret")
+
+// ScanCommitted scans the text of a committed intent with d (nil means gitleaks') and returns it
+// unchanged, as Masked text with no redactions. A finding is ErrSecretInIntent and a detector error
+// is returned as it is: either way no Masked value exists.
+func ScanCommitted(d Detector, text string) (Masked, error) {
+	if d == nil {
+		d = gitleaksDetector
+	}
+	findings, err := d(text)
+	if err != nil {
+		return Masked{}, err
+	}
+	if len(findings) > 0 {
+		return Masked{}, ErrSecretInIntent
+	}
+	return Masked{text: text}, nil
 }
 
 // Mask scans text with gitleaks' detection library (default config) and replaces its findings'

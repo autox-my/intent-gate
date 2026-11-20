@@ -30,11 +30,22 @@ const (
 )
 
 var (
-	methods  = []string{"hook", "cli-confirm", "issue"}              // REQ-0011
-	sources  = []string{"claude-code-session", "issue", "plan-file"} //
-	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)   // 26-char Crockford base32, 128 bits
+	methods  = []string{"hook", "cli-confirm", "issue"}                                     // REQ-0011
+	sources  = []string{"claude-code-session", "issue", "plan-file", SourceCommittedIntent} //
+	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)                          // 26-char Crockford base32, 128 bits
 	sha256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+	intentPathRE = regexp.MustCompile(`^intents/[a-z0-9][a-z0-9-]*\.md$`) // intent-lock.md §6
+	blobRE       = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)    // a git object id, SHA-1 or SHA-256
 )
+
+// SourceCommittedIntent is the root_intent.source of a lock whose root intent is a committed
+// intent file (ADR 0006, intent-lock.md §6): the lock then records the file's path and blob.
+const SourceCommittedIntent = "committed-intent"
+
+// ValidIntentPath reports whether s is a committed intent's path: intents/<slug>.md, <slug> being
+// [a-z0-9][a-z0-9-]* (REQ-0043).
+func ValidIntentPath(s string) bool { return intentPathRE.MatchString(s) }
 
 // Lock is the committed intent lock (schema intentgate.lock/1). It has no field for root intent
 // text, and Parse rejects unknown keys, so the text can't be committed (REQ-0014).
@@ -53,11 +64,14 @@ type Lock struct {
 
 // RootIntent binds the lock to the root intent by hash only. Redactions is the number of secrets
 // masked before hashing (REQ-0015); it is a pointer so that a missing key (a problem) is distinct
-// from 0, and the hash tells them apart.
+// from 0, and the hash tells them apart. Path and Blob are set, and only set, for source
+// committed-intent (REQ-0044): the intent file's path and its git blob id at HEAD.
 type RootIntent struct {
 	SHA256     string `yaml:"sha256" json:"sha256"`
 	Source     string `yaml:"source" json:"source"`
 	Redactions *int   `yaml:"redactions,omitempty" json:"redactions,omitempty"`
+	Path       string `yaml:"path,omitempty" json:"path,omitempty"`
+	Blob       string `yaml:"blob,omitempty" json:"blob,omitempty"`
 }
 
 // Criterion is one acceptance criterion with its footprint globs.
@@ -163,6 +177,8 @@ func Validate(l Lock) []Problem {
 		add("root_intent.source", "must be one of %s, got %q", strings.Join(sources, ", "), l.RootIntent.Source)
 	}
 
+	validateRootIntentFile(l.RootIntent, add) // REQ-0044
+
 	// REQ-0015: recorded by the ratifier, so it must be there
 	switch r := l.RootIntent.Redactions; {
 	case r == nil:
@@ -231,6 +247,32 @@ func Validate(l Lock) []Problem {
 		return ps[i].Message < ps[j].Message
 	})
 	return ps
+}
+
+// validateRootIntentFile checks path and blob: both present, and well formed, iff the source is
+// committed-intent (REQ-0044).
+func validateRootIntentFile(ri RootIntent, add func(path, format string, args ...any)) {
+	if ri.Source != SourceCommittedIntent {
+		if ri.Path != "" {
+			add("root_intent.path", "is only for source %s, got %q", SourceCommittedIntent, ri.Path)
+		}
+		if ri.Blob != "" {
+			add("root_intent.blob", "is only for source %s, got %q", SourceCommittedIntent, ri.Blob)
+		}
+		return
+	}
+	switch {
+	case ri.Path == "":
+		add("root_intent.path", "is required for source %s", SourceCommittedIntent)
+	case !intentPathRE.MatchString(ri.Path):
+		add("root_intent.path", "must be intents/<slug>.md with a slug of [a-z0-9][a-z0-9-]*, got %q", ri.Path)
+	}
+	switch {
+	case ri.Blob == "":
+		add("root_intent.blob", "is required for source %s", SourceCommittedIntent)
+	case !blobRE.MatchString(ri.Blob):
+		add("root_intent.blob", "must be a git object id of 40 or 64 lower-case hex characters, got %q", ri.Blob)
+	}
 }
 
 // planReviewStatuses is the enum of plan_review.status (plan-review.md §3, §4).
