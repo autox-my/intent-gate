@@ -60,7 +60,7 @@ A spec adds no new requirements and restates none. It points at claims and desig
 |---|---|---|
 | Orchestrator | main thread: writes specs, checks branches, keeps the summary | Claude Opus 5.5 |
 | Worker | one per spec, in its own git worktree, writes tests then code | `claudeAgent` / `claude-sonnet-5-5` |
-| Reviewer | read-only, a different model family from the worker | `opencode` / `opencode-go/deepseek-v4.1-flash` |
+| Reviewer | read-only, a different model family from the worker | `opencode` / `opencode-go/gemini-4-argon` (fallback: `opencode-go/deepseek-v4.1-flash` when Argon is unavailable) |
 | Human | ratifies claims and links, reviews, merges | — |
 
 ### The flow for one slice

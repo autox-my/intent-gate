@@ -8,7 +8,7 @@ One spec per slice of work, committed before a worker starts (a worktree only se
 # S-NN: <title>
 
 **Base commit:** <sha>   **Branch:** feature/s-NN-<slug>
-**Worker:** claudeAgent / claude-sonnet-5-5   **Reviewer:** opencode / opencode-go/deepseek-v4.1-flash
+**Worker:** claudeAgent / claude-sonnet-5-5   **Reviewer:** opencode / opencode-go/gemini-4-argon
 
 ## Criteria (claims this slice must satisfy)
 - REQ-NNNN: <one line on what part of it this slice covers>
