@@ -1,0 +1,29 @@
+schema: intentgate.lock/1
+id: 01M7VHETEHK8RZX6M68B6W2FZA
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 357332fb023560fd7184a4d1bc09fbbcb16128b12445bf219ca706bb1747250e
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: intentgate stats reports merged PRs in the window, those that brought a valid lock, and the lock coverage ratio, from git history alone
+    footprint:
+      - cmd/intentgate/**
+      - internal/gitx/**
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-20T03:54:29Z"
+  method: hook
+  review_duration_ms: 110426
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:5941242bd901569463b9db9bc9fecab87d3ba6404b67d5be8ff60cf58075e2e9
