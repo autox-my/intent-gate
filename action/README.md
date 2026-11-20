@@ -51,16 +51,38 @@ jobs:
   `github-actions[bot]`'s. A mismatch makes every run create a new comment.
 - `pull_request` is the only supported event. Any other event, including `pull_request_target`,
   gets one workflow warning and no check.
-- The Action builds `intentgate` from the checked-out Action repository with Go (`go-version`,
-  default `stable`); it does not download a binary.
+- By default (`source: release`) the Action downloads the pinned `intentgate` release and verifies
+  its SHA-256 before running it; see [The pinned release](#the-pinned-release). `source: build`
+  builds it from the Action repository with Go instead (`go-version`, default `stable`).
 
 | Input | Default | Meaning |
 |---|---|---|
-| `go-version` | `stable` | Go version for the build |
+| `source` | `release` | `release`: download the pinned release and verify its SHA-256. `build`: build from source with Go. Any other value: a warning and no check |
+| `go-version` | `stable` | Go version for the source build (not used by `source: release`, except for its fallback) |
 | `token` | `${{ github.token }}` | token for the Checks and Issues APIs |
 | `bot-login` | `github-actions[bot]` | login whose comments are the Action's own |
 
 Output: `exit-code`, the exit code of `intentgate verify` (0 clean, 1 findings, 3 could not decide).
+
+## The pinned release
+
+A `v*` tag (pushed by a human) runs `.github/workflows/release.yml`, which builds `intentgate` for
+`linux/amd64`, `linux/arm64`, `darwin/amd64` and `darwin/arm64` and publishes the binaries
+(`intentgate_<tag>_<os>_<arch>`) with one `SHA256SUMS` file.
+
+`action/release.txt` pins one release: a `version <tag>` line and the SHA-256 of each Linux asset.
+`fetch.sh` downloads that release over https, checks the SHA-256 against the file, and only then
+installs the binary. Because the file is part of the Action's commit, pinning the Action's commit
+SHA pins the binary's hash too.
+
+- A new release means updating `release.txt` from the release's `SHA256SUMS` in a reviewed commit,
+  then re-pinning the Action's SHA in the workflows that use it.
+- With no `version` line (no release is pinned yet) the Action notices it and builds from source,
+  as `source: build` does.
+- Any other failure (an unsupported platform, a failed download, a checksum mismatch) is a
+  workflow warning and the check is skipped. The Action never builds from source after a checksum
+  failure, and it never fails the job.
+- Only Linux runners (`X64` and `ARM64`) are supported by `source: release`.
 
 ## Pull requests from forks
 

@@ -425,7 +425,7 @@ func TestWorkflows_Actionlint(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no workflows found under .github/workflows: %v", err)
 	}
-	for _, name := range []string{"check.yml", "intentgate.yml"} {
+	for _, name := range []string{"check.yml", "intentgate.yml", "release.yml"} {
 		if _, err := os.Stat(filepath.Join("..", ".github", "workflows", name)); err != nil {
 			t.Errorf("missing workflow %s: %v", name, err)
 		}
@@ -469,4 +469,143 @@ func lint(t *testing.T, workflow, withAction string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Errorf("actionlint: %v\n%s", err, out)
 	}
+}
+
+// TestAction_Source covers S-21: the Action downloads the pinned release by default and builds
+// from source only when asked, or when no release is pinned yet.
+func TestAction_Source(t *testing.T) {
+	t.Run("the source input defaults to release", func(t *testing.T) {
+		if d := load(t).Inputs["source"].Default; d != "release" {
+			t.Errorf("source default = %q, want release", d)
+		}
+	})
+
+	t.Run("the fetch step runs only for release, from the Action's own directory", func(t *testing.T) {
+		f := stepByID(t, load(t), "fetch")
+		if !strings.Contains(f.If, "inputs.source == 'release'") {
+			t.Errorf("fetch if = %q", f.If)
+		}
+		if !strings.Contains(f.Run, "fetch.sh") || !strings.Contains(f.Run, "release.txt") || !strings.Contains(f.Run, "$RUNNER_TEMP/intentgate-bin/intentgate") {
+			t.Errorf("fetch run = %q", f.Run)
+		}
+		if !strings.Contains(f.Env["ACTION_PATH"], "github.action_path") {
+			t.Errorf("fetch env = %v, want ACTION_PATH from github.action_path", f.Env)
+		}
+	})
+
+	t.Run("setup-go and the build run only for build, or after exit 5 from fetch", func(t *testing.T) {
+		a := load(t)
+		g := stepByID(t, a, "go")
+		if !strings.Contains(g.If, "inputs.source == 'build'") || !strings.Contains(g.If, "steps.fetch.outputs.exit_code == '5'") {
+			t.Errorf("go if = %q", g.If)
+		}
+		if strings.Contains(g.If, "inputs.source != ") {
+			t.Errorf("go if = %q: an unknown source must do nothing", g.If)
+		}
+		if b := stepByID(t, a, "build"); !strings.Contains(b.If, "steps.go.outcome == 'success'") {
+			t.Errorf("build if = %q", b.If)
+		}
+	})
+
+	t.Run("verify needs a binary from either path", func(t *testing.T) {
+		v := stepByID(t, load(t), "verify")
+		if !strings.Contains(v.If, "steps.build.outcome == 'success'") || !strings.Contains(v.If, "steps.fetch.outputs.exit_code == '0'") {
+			t.Errorf("verify if = %q", v.If)
+		}
+	})
+
+	t.Run("an unknown source value warns and nothing more runs", func(t *testing.T) {
+		a := load(t)
+		var warn *step
+		for i, s := range a.Runs.Steps {
+			if strings.Contains(s.If, "inputs.source != 'release'") && strings.Contains(s.If, "inputs.source != 'build'") {
+				warn = &a.Runs.Steps[i]
+			}
+		}
+		if warn == nil {
+			t.Fatal("no step warns about an unknown source")
+		}
+		if !strings.Contains(warn.Run, "::warning") || warn.Uses != "" {
+			t.Errorf("warning step = %+v", *warn)
+		}
+		// Every other path is gated on a known source, directly or through the steps it needs.
+		for _, id := range []string{"fetch", "go"} {
+			if !strings.Contains(stepByID(t, a, id).If, "inputs.source == ") {
+				t.Errorf("step %q is not gated on a known source", id)
+			}
+		}
+	})
+
+	t.Run("the fetch step: exit 5 is a notice, any other failure a warning, and it never fails", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not on PATH")
+		}
+		f := stepByID(t, load(t), "fetch")
+		for _, tc := range []struct{ code, want string }{{"0", ""}, {"4", "::warning"}, {"5", "::notice"}, {"6", "::warning"}, {"7", "::warning"}} {
+			tmp := t.TempDir()
+			actionDir := filepath.Join(tmp, "action")
+			if err := os.MkdirAll(actionDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			fake := "#!/usr/bin/env bash\nexit " + tc.code + "\n"
+			if err := os.WriteFile(filepath.Join(actionDir, "fetch.sh"), []byte(fake), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ghOut := filepath.Join(tmp, "github_output")
+			cmd := exec.Command("bash", "-eo", "pipefail", "-c", f.Run)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "RUNNER_TEMP=" + tmp, "GITHUB_OUTPUT=" + ghOut, "ACTION_PATH=" + actionDir}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("fetch.sh exit %s: the step failed: %v\n%s", tc.code, err, out)
+			}
+			if tc.want == "" && strings.Contains(string(out), "::") || tc.want != "" && !strings.Contains(string(out), tc.want) {
+				t.Errorf("fetch.sh exit %s: output %q, want %q", tc.code, out, tc.want)
+			}
+			if tc.code != "5" && strings.Contains(string(out), "::notice") {
+				t.Errorf("fetch.sh exit %s: only exit 5 falls back, got %q", tc.code, out)
+			}
+			if got, _ := os.ReadFile(ghOut); !strings.Contains(string(got), "exit_code="+tc.code) {
+				t.Errorf("fetch.sh exit %s: GITHUB_OUTPUT = %q", tc.code, got)
+			}
+		}
+	})
+
+	t.Run("the dogfood workflow tests this pull request's code: source: build", func(t *testing.T) {
+		data, err := os.ReadFile(filepath.Join("..", ".github", "workflows", "intentgate.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var w struct {
+			Jobs map[string]struct {
+				Steps []step `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(data, &w); err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range w.Jobs {
+			for _, s := range j.Steps {
+				if s.Uses == "./action" {
+					if s.With["source"] != "build" {
+						t.Errorf("./action with = %v, want source: build", s.With)
+					}
+					return
+				}
+			}
+		}
+		t.Error("no ./action step in intentgate.yml")
+	})
+
+	t.Run("the README documents source, the pin and how to update it", func(t *testing.T) {
+		data, err := os.ReadFile("README.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		readme := string(data)
+		for _, frag := range []string{"`source`", "release.txt", "SHA-256", "re-pin"} {
+			if !strings.Contains(readme, frag) {
+				t.Errorf("README does not mention %q", frag)
+			}
+		}
+	})
 }

@@ -40,9 +40,9 @@ entries:
     commands: ["init"]
   - kind: DEPLOY
     title: "IntentGate hooks + Action"
-    detail: "lock · PR check"
+    detail: "lock · PR check · release"
     feeds: review
-    paths: ["action/action.yml"]
+    paths: ["action/action.yml", "action/fetch.sh", ".github/workflows/release.yml"]
     commands: ["hook claude-code print-config", "hook claude-code ratify-question", "lock --from-plan", "verify"]
 
 # The pipeline, left to right.
@@ -94,8 +94,8 @@ stages:
     kind: MERGE
     title: "Merge"
     question: "Ship"
-    detail: "CI · req check · Baseline · human merge"
-    paths: [".github/workflows/check.yml", "baselines/phase0-2.json"]
+    detail: "CI · req check · Baseline · human merge · v* tag release"
+    paths: [".github/workflows/check.yml", ".github/workflows/release.yml", "baselines/phase0-2.json"]
 
 maintain: "audit events · intentgate stats · handoffs feed the next intent (production signals: not yet)"
 
@@ -162,9 +162,9 @@ artifacts:
     state: covered
   - playbook: "CI/CD"
     build: "`scripts/check.sh`: gofmt, vet, staticcheck, tests, `req check`, Baseline verify; `req diff` on PRs."
-    product: "The composite Action on `pull_request`."
+    product: "The composite Action on `pull_request`, running the pinned, checksummed release that `.github/workflows/release.yml` publishes for a `v*` tag (`action/fetch.sh` verifies it)."
     state: covered
-    paths: ["scripts/check.sh", "action/action.yml", ".github/workflows/check.yml"]
+    paths: ["scripts/check.sh", "action/action.yml", "action/fetch.sh", ".github/workflows/check.yml", ".github/workflows/release.yml"]
   - playbook: "closing the loop"
     build: "Handoffs, coverage explorer."
     product: "Audit events, `intentgate stats` (amendment rate, merged PRs and lock coverage)."
@@ -197,7 +197,7 @@ lifecycle:
     - id: V
       name: "Action"
       sub: "verify + publish"
-      paths: ["action/action.yml"]
+      paths: ["action/action.yml", "action/fetch.sh"]
       commands: ["verify", "publish"]
   steps:
     - {from: H, to: A, text: "request (root intent), in plan mode"}

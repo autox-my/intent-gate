@@ -1,0 +1,11 @@
+# The intentgate release this Action runs (ADR 0005, S-21). Read by fetch.sh.
+#
+# To pin a release (a human tags it; a reviewed commit pins it): take the release's SHA256SUMS and
+# copy the two Linux lines here, after a `version` line, for example:
+#
+#   version v0.1.0
+#   <sha256>  intentgate_v0.1.0_linux_amd64
+#   <sha256>  intentgate_v0.1.0_linux_arm64
+#
+# Then re-pin the Action's commit SHA in the workflows that use it: pinning the commit pins the
+# binary's hash. With no `version` line the Action falls back to building from source.

@@ -1,0 +1,30 @@
+schema: intentgate.lock/1
+id: 01M7VN1FJ1ZSBD5MCT8GFPDEK1
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 2bf2d4565159e85c1d94b8f6f2adeb9c0e15d3cc0f7ca2f18c253068a4cce5e5
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: A v* tag builds and publishes checksummed intentgate binaries, and the Action downloads the pinned release and verifies its SHA-256 before running it, with the source build kept as an explicit option
+    footprint:
+      - action/**
+      - .github/workflows/release.yml
+      - .github/workflows/intentgate.yml
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-20T04:57:06Z"
+  method: hook
+  review_duration_ms: 92209
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:3e23892e1581e4bb560ed3e3c97c7f83f19ea7fed18156cfd8e2f1e8b0c565b5

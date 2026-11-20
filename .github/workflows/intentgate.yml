@@ -23,6 +23,9 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Dogfood: the Action built from this pull request's checkout. Safe under pull_request, where
-      # the token is read-only for forks and the Action refuses every other event.
+      # Dogfood: the Action built from this pull request's checkout (`source: build`, not the pinned
+      # release, so the PR's own code is what runs). Safe under pull_request, where the token is
+      # read-only for forks and the Action refuses every other event.
       - uses: ./action
+        with:
+          source: build

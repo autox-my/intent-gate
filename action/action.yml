@@ -1,4 +1,5 @@
-# IntentGate's PR check (ADR 0005, pr-check.md): builds `intentgate` from this repository, runs
+# IntentGate's PR check (ADR 0005, pr-check.md): downloads the pinned, checksummed `intentgate` release
+# (action/release.txt, fetch.sh) or, with `source: build`, builds it from this repository; runs
 # `intentgate verify` and publishes the result as one check run, at most one comment and SARIF.
 # Phase 0 is advisory: no step can fail the job (every step continues on error), and a step that
 # cannot run is skipped, not failed.
@@ -10,8 +11,11 @@
 name: IntentGate
 description: Check a pull request against the intent locks it adds, and publish the result.
 inputs:
+  source:
+    description: "Where intentgate comes from: `release` (default) downloads the pinned release and verifies its SHA-256, falling back to a source build only while no release is pinned; `build` builds it from this repository with Go."
+    default: release
   go-version:
-    description: Go version used to build intentgate (the go-version input of actions/setup-go).
+    description: Go version used to build intentgate when it is built from source (the go-version input of actions/setup-go).
     default: stable
   token:
     description: Token for the Checks and Issues APIs. A pull request from a fork gets a read-only one; see README.
@@ -32,9 +36,38 @@ runs:
       shell: bash
       run: echo "::warning title=IntentGate::IntentGate supports pull_request only. This event is ignored; pull_request_target is not supported."
 
+    - id: bad-source
+      if: github.event_name == 'pull_request' && inputs.source != 'release' && inputs.source != 'build'
+      continue-on-error: true
+      shell: bash
+      run: echo "::warning title=IntentGate::Unknown source input. Use release or build. Nothing was checked."
+
+    # The pinned release, verified against action/release.txt before it is installed. Exit 5 means no
+    # release is pinned yet: build from source. Any other failure skips the check: never build silently
+    # after a checksum or download failure.
+    - id: fetch
+      if: github.event_name == 'pull_request' && inputs.source == 'release'
+      continue-on-error: true
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/intentgate-bin"
+        if RELEASE_FILE="$ACTION_PATH/release.txt" DEST="$RUNNER_TEMP/intentgate-bin/intentgate" bash "$ACTION_PATH/fetch.sh"; then
+          code=0
+        else
+          code=$?
+        fi
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+        if [ "$code" -eq 5 ]; then
+          echo "::notice title=IntentGate::No release is pinned yet; building intentgate from source."
+        elif [ "$code" -ne 0 ]; then
+          echo "::warning title=IntentGate::The pinned release could not be downloaded and verified (fetch.sh exit $code). The check was skipped."
+        fi
+
     # actions/setup-go v6.5.0
     - id: go
-      if: github.event_name == 'pull_request'
+      if: github.event_name == 'pull_request' && (inputs.source == 'build' || (inputs.source == 'release' && steps.fetch.outputs.exit_code == '5'))
       uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
       continue-on-error: true
       with:
@@ -55,7 +88,7 @@ runs:
         go build -trimpath -ldflags "-X main.version=$VERSION" -o "$RUNNER_TEMP/intentgate-bin/intentgate" ./cmd/intentgate
 
     - id: verify
-      if: github.event_name == 'pull_request' && steps.build.outcome == 'success'
+      if: github.event_name == 'pull_request' && (steps.build.outcome == 'success' || steps.fetch.outputs.exit_code == '0')
       continue-on-error: true
       shell: bash
       env:

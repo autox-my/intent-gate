@@ -46,7 +46,7 @@ flowchart LR
 | 5 | TEST | Red first | failing tests + tests: links |
 | 6 | CODE | Green | worker in a worktree |
 | 7 | REVIEW | Check the diff | path check · DeepSeek · PR check |
-| 8 | MERGE | Ship | CI · req check · Baseline · human merge |
+| 8 | MERGE | Ship | CI · req check · Baseline · human merge · v* tag release |
 
 **↺ MAINTAIN** audit events · intentgate stats · handoffs feed the next intent (production signals: not yet)
 
@@ -75,7 +75,7 @@ The playbook's chain is `intent.md → spec.md → plan.md → diff → review f
 | `plan.md`<br>*accepted in plan mode* | `docs/specs/S-NN-*.md`: claim ids, allowed paths, red-first tests. Committed before a worker starts. | The approved plan with its `intentgate` block, turned into `.intent/<id>.yml` (criteria + footprint + ratification). | covered |
 | diff vs plan | Orchestrator runs `git diff base...branch --name-only` against the spec's allowed paths. | Footprint check in `intentgate verify`, with an `amend` command per finding. | covered |
 | review findings | DeepSeek review, turned into a binding "Review 1 amendments" bullet in the spec. | One check run, at most one comment, SARIF. | covered |
-| CI/CD | `scripts/check.sh`: gofmt, vet, staticcheck, tests, `req check`, Baseline verify; `req diff` on PRs. | The composite Action on `pull_request`. | covered |
+| CI/CD | `scripts/check.sh`: gofmt, vet, staticcheck, tests, `req check`, Baseline verify; `req diff` on PRs. | The composite Action on `pull_request`, running the pinned, checksummed release that `.github/workflows/release.yml` publishes for a `v*` tag (`action/fetch.sh` verifies it). | covered |
 | closing the loop | Handoffs, coverage explorer. | Audit events, `intentgate stats` (amendment rate, merged PRs and lock coverage). | partial |
 
 **Overlaps and double meanings**
