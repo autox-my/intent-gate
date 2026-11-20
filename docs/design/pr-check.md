@@ -60,3 +60,26 @@ Phase 0 never concludes `failure` or `action_required`. The blocking-mode table 
 ## 6. Audit event
 
 Every run writes one `intentgate.audit/1` JSON event (audit-metrics.md) to the check-run summary's details and as a workflow artifact.
+
+## 7. Committed intent acceptance (ADR 0006, REQ-0045)
+
+For each lock in the PR whose root intent is a committed intent (intent-lock.md §6), the PR check reports whether that intent was **accepted**: it reached the base branch through a pull request approved by a code owner of the file. It is a report only. It never changes `verify`'s outcome, exit code or the check's conclusion.
+
+**Where it runs.** Not in `verify`: acceptance needs the forge's review API, and `verify` makes no network calls (core-contracts.md §1). A separate command, `intentgate acceptance`, runs in the Action after `verify` and before `publish`, and writes `acceptance.json` into the same out dir. `verify.json`, its replay and its determinism are unchanged.
+
+**Inputs.** `--out-dir` (reads `verify.json` for the PR's lock paths), `--repo`, `--base <sha>`, `--head <sha>`, and `GITHUB_TOKEN`. Each listed lock is read at `head`; only locks that pass validation and have `source: committed-intent` are judged.
+
+**Per intent, in order** (the first rule that settles it wins):
+
+1. `git rev-parse <base>:<path>` must equal the lock's `blob`. Otherwise **not-accepted**: "this version of the intent is not on the base branch" (for example the intent is added in the same PR: accepting it is a separate, earlier PR).
+2. The commit that last changed the path on base: `git log -1 --format=%H <base> -- <path>`.
+3. Its pull request: `GET /repos/{o}/{r}/commits/{sha}/pulls`, keeping the merged ones. None: **not-accepted**, "reached the base branch without a pull request". Several: the lowest-numbered merged one.
+4. Its approvals: `GET /repos/{o}/{r}/pulls/{n}/reviews` (all pages). A reviewer approves when their latest review that is `APPROVED`, `CHANGES_REQUESTED` or `DISMISSED` is `APPROVED`.
+5. The code owners of the path, from the first of `.github/CODEOWNERS`, `CODEOWNERS`, `docs/CODEOWNERS` that exists at `<base>`, using GitHub's rule (the last matching line wins; gitignore-style patterns: `*`, `**`, a leading `/` anchors, a trailing `/` means a directory). No file, or no line matches: **unknown**, "no code owner for <path>".
+6. **accepted** if an approver's login is among the owners (case-insensitive, `@` stripped), naming the PR and the owner. Else, if some owners are teams (`@org/team`) or emails: **unknown**, "owned by a team or an email; checking membership needs more than the Action's token". Else **not-accepted**, "approved by none of its code owners".
+
+Any API error (including 403/404 from a token that cannot read): **unknown** with the status. No retries beyond the client's.
+
+**Output.** `acceptance.json`, schema `intentgate.acceptance/1`: `{"schema", "intents": [{"lock_id", "path", "blob", "status", "reason", "pr"}]}`, sorted by `lock_id`, `pr` 0 when there is none, keys in that order. No lock with a committed intent: the file holds an empty list.
+
+**Publishing.** `publish` adds a "Committed intents" section to the check-run summary when `acceptance.json` lists any intent (one line each: status, path, reason, PR link), and the same section to the comment when a comment is posted anyway. It never causes a comment by itself and never changes the conclusion.
