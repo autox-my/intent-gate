@@ -9,6 +9,8 @@
 <!-- req-satisfies: REQ-0013 -->
 <!-- req-satisfies: REQ-0014 -->
 <!-- req-satisfies: REQ-0022 -->
+<!-- req-satisfies: REQ-0043 -->
+<!-- req-satisfies: REQ-0044 -->
 
 The intent lock is IntentGate's public contract. Agent hooks, the CLI, the PR check and later integrations all read and write it, so its schema is versioned, and published as `schema/intentgate.lock.v1.json`.
 

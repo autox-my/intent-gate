@@ -9,4 +9,5 @@ rationale:
   rejected_alternatives: []
   assumptions: []
 relations: []
-tests: []
+tests:
+  - "github.com/autox-my/intent-gate/internal/lock::TestLock_CommittedIntentFields"

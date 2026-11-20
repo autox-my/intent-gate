@@ -9,4 +9,6 @@ rationale:
   rejected_alternatives: []
   assumptions: []
 relations: []
-tests: []
+tests:
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLockFromPlan_CommittedIntent"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_CommittedIntent"
