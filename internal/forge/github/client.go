@@ -220,7 +220,7 @@ func (c *Client) do(ctx context.Context, method, target string, body []byte, out
 		if msg == "" {
 			msg = http.StatusText(resp.StatusCode)
 		}
-		return nil, fmt.Errorf("github: %s %s: %d %s", method, target, resp.StatusCode, scrubString(msg, c.Token))
+		return nil, &StatusError{Status: resp.StatusCode, text: fmt.Sprintf("github: %s %s: %d %s", method, target, resp.StatusCode, scrubString(msg, c.Token))}
 	}
 	// An empty 2xx is success for PATCH and DELETE, which need nothing from the answer; POST still
 	// needs the created id, and GET the data, so an empty body stays a decode error for them.
@@ -235,6 +235,15 @@ func (c *Client) do(ctx context.Context, method, target string, body []byte, out
 	}
 	return resp.Header, nil
 }
+
+// StatusError is a non-2xx answer from the API. Its text names the request, the status and GitHub's
+// message, and never the token.
+type StatusError struct {
+	Status int
+	text   string
+}
+
+func (e *StatusError) Error() string { return e.text }
 
 // scrub returns an error whose text lacks the token, so no path can print it.
 func scrub(err error, token string) error {

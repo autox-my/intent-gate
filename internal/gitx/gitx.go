@@ -485,3 +485,21 @@ func FirstParentMerges(dir, rev string) ([]Merge, error) {
 	}
 	return merges, nil
 }
+
+// LastCommit returns the commit that last changed path (relative to the repository root, taken
+// literally) on the history of rev, `git log -1 --format=%H <rev> -- <path>`; "" when no commit on
+// that history touches it.
+func LastCommit(dir, rev, path string) (string, error) {
+	if err := checkRev(rev); err != nil {
+		return "", err
+	}
+	r, err := openRepo(dir)
+	if err != nil {
+		return "", err
+	}
+	out, err := r.run("--literal-pathspecs", "log", "-1", "--format=%H", "--end-of-options", rev, "--", path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}

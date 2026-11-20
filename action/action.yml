@@ -1,6 +1,7 @@
 # IntentGate's PR check (ADR 0005, pr-check.md): downloads the pinned, checksummed `intentgate` release
 # (action/release.txt, fetch.sh) or, with `source: build`, builds it from this repository; runs
-# `intentgate verify` and publishes the result as one check run, at most one comment and SARIF.
+# `intentgate verify`, reports whether committed intents were accepted (`intentgate acceptance`) and
+# publishes the result as one check run, at most one comment and SARIF.
 # Phase 0 is advisory: no step can fail the job (every step continues on error), and a step that
 # cannot run is skipped, not failed.
 #
@@ -111,6 +112,23 @@ runs:
           echo "upload=true" >> "$GITHUB_OUTPUT"
         else
           echo "upload=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    # Committed intent acceptance (ADR 0006, pr-check.md §7): for each lock whose root intent is a
+    # committed intent file, did it reach the base branch through a pull request approved by a code
+    # owner? A report only: it writes acceptance.json next to verify.json and `publish` adds it to the
+    # summary. A failure is one warning and changes nothing else.
+    - id: acceptance
+      if: github.event_name == 'pull_request' && steps.verify.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        if ! "$RUNNER_TEMP/intentgate-bin/intentgate" acceptance --out-dir "$RUNNER_TEMP/intentgate" --repo "$GITHUB_REPOSITORY" --base "$BASE_SHA" --head "$HEAD_SHA"; then
+          echo "::warning title=IntentGate::Committed intent acceptance could not be computed. The check result is unchanged."
         fi
 
     # The result is in the job summary on every run, including a fork pull request whose token

@@ -81,6 +81,15 @@ func runPublish(args []string, stdout io.Writer, deps Deps) int {
 		}
 	}
 
+	// Committed intents (pr-check.md §7): a section of the summary, and of the comment when one is
+	// posted anyway. It never decides whether a comment is posted and never touches the conclusion.
+	if section := committedIntentsSection(dir, *repoFlag, t.errOut); section != "" {
+		summary = appendSection(summary, section)
+		if comment != "" {
+			comment = appendSection(comment, section)
+		}
+	}
+
 	api := os.Getenv("GITHUB_API_URL")
 	if api == "" {
 		api = defaultAPIURL
@@ -172,6 +181,48 @@ func publishComment(ctx context.Context, c *github.Client, owner, repo string, p
 		msg += fmt.Sprintf(" (deleted %d duplicate)", len(ids)-1)
 	}
 	return msg, nil
+}
+
+// appendSection puts a Markdown section after text, with one blank line between.
+func appendSection(text, section string) string {
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return text + "\n" + section
+}
+
+// committedIntentsSection renders acceptance.json (written by `intentgate acceptance`) as the
+// "Committed intents" section: one line per intent with its status, path, reason and, when there
+// is one, a link to the pull request. It is "" when there is no such file, it is not an
+// intentgate.acceptance/1 document, or it lists no intent; the publish never fails on it.
+func committedIntentsSection(dir, repo string, errOut io.Writer) string {
+	data, err := os.ReadFile(filepath.Join(dir, acceptanceFile))
+	if err != nil {
+		return ""
+	}
+	var doc acceptanceDoc
+	if err := json.Unmarshal(data, &doc); err != nil || doc.Schema != acceptanceSchema {
+		fmt.Fprintf(errOut, "intentgate publish: ignoring %s: it is not an %s document\n", acceptanceFile, acceptanceSchema)
+		return ""
+	}
+	if len(doc.Intents) == 0 {
+		return ""
+	}
+	server := strings.TrimRight(os.Getenv("GITHUB_SERVER_URL"), "/")
+	if server == "" {
+		server = "https://github.com"
+	}
+	oneLine := strings.NewReplacer("\r", " ", "\n", " ").Replace
+	var b strings.Builder
+	b.WriteString("### Committed intents\n\n")
+	for _, in := range doc.Intents {
+		fmt.Fprintf(&b, "- **%s** `%s`: %s", oneLine(in.Status), oneLine(in.Path), oneLine(in.Reason))
+		if in.PR > 0 {
+			fmt.Fprintf(&b, " ([#%d](%s/%s/pull/%d))", in.PR, server, repo, in.PR)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // loadDecision reads and checks decision.json in dir.

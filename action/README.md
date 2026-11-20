@@ -6,10 +6,17 @@ and publishes the result:
 - one check run named `IntentGate`, updated in place when the check runs again for the same commit;
 - at most one pull request comment, found by its hidden marker and edited in place;
 - the result in the job summary and, with `verify.json`, `results.sarif`, `summary.md`,
-  `comment.md`, `decision.json` and `audit.json` (the run's `intentgate.audit/1` audit event), as
-  the `intentgate` workflow artifact, on every run;
+  `comment.md`, `decision.json`, `audit.json` (the run's `intentgate.audit/1` audit event) and
+  `acceptance.json` (see below), as the `intentgate` workflow artifact, on every run;
 - the footprint findings as SARIF, uploaded with `github/codeql-action/upload-sarif` (category
   `intentgate`), so they show in code scanning and as annotations.
+
+For each lock whose root intent is a committed intent file (`intents/<slug>.md`), a "Committed
+intents" section of the check run summary (and of the comment, when one is posted anyway) says
+whether that intent was accepted: it reached the base branch through a pull request approved by a
+code owner of the file, read from `CODEOWNERS` at the base. The `acceptance` step makes it with
+`intentgate acceptance`, which asks the review API with the `token` input; a team owner, or a token
+that cannot read, gives `unknown`, never a failure. It is a report only.
 
 Phase 0 is advisory. The Action never fails the job and the check run never concludes `failure`,
 so nothing here can block a merge.
