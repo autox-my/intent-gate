@@ -188,7 +188,9 @@ func TestFetch(t *testing.T) {
 	})
 }
 
-func TestReleaseFile_NoVersionYet(t *testing.T) {
+// TestReleaseFile_Pinned: release.txt pins exactly one release tag and a checksum for each Linux asset
+// of that tag, and nothing else (S-21; pinned to v0.1.0 after the first release).
+func TestReleaseFile_Pinned(t *testing.T) {
 	data, err := os.ReadFile("release.txt")
 	if err != nil {
 		t.Fatal(err)
@@ -197,15 +199,35 @@ func TestReleaseFile_NoVersionYet(t *testing.T) {
 	if !strings.Contains(text, "SHA256SUMS") {
 		t.Error("release.txt has no header comment saying how to fill it from a release's SHA256SUMS")
 	}
-	hashLine := regexp.MustCompile(`^[0-9a-f]{64}  intentgate_v[0-9]+\.[0-9]+\.[0-9]+_(linux)_(amd64|arm64)$`)
+	versionLine := regexp.MustCompile(`^version (v[0-9]+\.[0-9]+\.[0-9]+)$`)
+	hashLine := regexp.MustCompile(`^[0-9a-f]{64}  intentgate_(v[0-9]+\.[0-9]+\.[0-9]+)_linux_(amd64|arm64)$`)
+	var versions []string
+	assets := map[string]string{} // arch -> tag in the asset name
 	for i, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
 		case line == "" || strings.HasPrefix(line, "#"):
-		case strings.HasPrefix(line, "version "):
-			t.Errorf("line %d: release.txt has a version line %q; no release exists yet in this slice", i+1, line)
-		case !hashLine.MatchString(line):
+		case versionLine.MatchString(line):
+			versions = append(versions, versionLine.FindStringSubmatch(line)[1])
+		case hashLine.MatchString(line):
+			m := hashLine.FindStringSubmatch(line)
+			if _, dup := assets[m[2]]; dup {
+				t.Errorf("line %d: a second checksum for linux_%s", i+1, m[2])
+			}
+			assets[m[2]] = m[1]
+		default:
 			t.Errorf("line %d: %q is not a comment, a version line or a checksum line", i+1, line)
+		}
+	}
+	if len(versions) != 1 {
+		t.Fatalf("release.txt has %d version lines, want exactly 1", len(versions))
+	}
+	for _, arch := range []string{"amd64", "arm64"} {
+		tag, ok := assets[arch]
+		if !ok {
+			t.Errorf("release.txt pins no checksum for linux_%s", arch)
+		} else if tag != versions[0] {
+			t.Errorf("linux_%s is pinned for %s, but the version line says %s", arch, tag, versions[0])
 		}
 	}
 }
