@@ -2,7 +2,17 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "command": "intentgate hook claude-code post",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode"
+      },
+      {
+        "matcher": "AskUserQuestion",
         "hooks": [
           {
             "type": "command",
@@ -14,7 +24,17 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "command": "intentgate hook claude-code pre",
+            "timeout": 60,
+            "type": "command"
+          }
+        ],
+        "matcher": "ExitPlanMode"
+      },
+      {
+        "matcher": "AskUserQuestion",
         "hooks": [
           {
             "type": "command",

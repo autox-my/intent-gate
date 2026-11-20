@@ -43,7 +43,7 @@ entries:
     detail: "lock · PR check"
     feeds: review
     paths: ["action/action.yml"]
-    commands: ["hook claude-code print-config", "lock --from-plan", "verify"]
+    commands: ["hook claude-code print-config", "hook claude-code ratify-question", "lock --from-plan", "verify"]
 
 # The pipeline, left to right.
 stages:
@@ -182,7 +182,7 @@ lifecycle:
       sub: "Claude Code"
     - id: K
       name: "intentgate hook"
-      commands: ["hook claude-code pre", "hook claude-code post"]
+      commands: ["hook claude-code pre", "hook claude-code post", "hook claude-code ratify-question"]
     - id: J
       name: "Jev"
       sub: "TypeSafe"

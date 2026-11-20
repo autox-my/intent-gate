@@ -490,3 +490,66 @@ func TestScope_Describe(t *testing.T) {
 		}
 	}
 }
+
+// S-18: a ratified card (ratification.md §2.1) is a boundary exactly like an approved ExitPlanMode.
+func TestRootIntent_RatifiedCardIsBoundary(t *testing.T) {
+	const hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	question := "Ratify the plan in docs/specs/S-01.md (sha256 " + hex + ")?"
+	use := func(id, header, q string) string {
+		b, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant", "model": "claude-opus-5-5",
+			"content": []any{map[string]any{"type": "tool_use", "id": id, "name": "AskUserQuestion", "input": map[string]any{
+				"questions": []any{map[string]any{"question": q, "header": header, "multiSelect": false,
+					"options": []any{map[string]any{"label": "Ratify", "description": "Write the intent lock for this plan"}, map[string]any{"label": "Not yet", "description": "No lock"}}}}}}}}})
+		return string(b)
+	}
+	// result is Claude Code's answered AskUserQuestion: the tool_result text, and the structured
+	// output as the entry's toolUseResult.
+	result := func(id, q, answer string) string {
+		b, _ := json.Marshal(map[string]any{"type": "user",
+			"message": map[string]any{"role": "user", "content": []any{map[string]any{"type": "tool_result", "tool_use_id": id,
+				"content": "Your questions have been answered: \"" + q + "\"=\"" + answer + "\". You can now continue with these answers in mind."}}},
+			"toolUseResult": map[string]any{"answers": map[string]any{q: answer}}})
+		return string(b)
+	}
+	human := func(s string) string {
+		b, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": s}})
+		return string(b)
+	}
+	cur := use("toolu_cur", "IntentGate", "Ratify the plan in docs/specs/S-02.md (sha256 "+hex+")?")
+	for _, c := range []struct {
+		name      string
+		lines     []string
+		want      string
+		wantKind  ScopeKind
+		wantTurns int
+	}{
+		{"a ratified card ends the previous slice",
+			[]string{human("Earlier ask."), use("toolu_a", "IntentGate", question), result("toolu_a", question, "Ratify"), human("Next ask."), cur},
+			"Next ask.", ScopeSince, 1},
+		{"a card answered Not yet is not a boundary",
+			[]string{human("Earlier ask."), use("toolu_a", "IntentGate", question), result("toolu_a", question, "Not yet"), human("Next ask."), cur},
+			"Earlier ask.\n\n---\n\nNext ask.", ScopeWhole, 2},
+		{"a card with no answer is a boundary, as a plan with none is",
+			[]string{human("Earlier ask."), use("toolu_a", "IntentGate", question), human("Next ask."), cur},
+			"Next ask.", ScopeSince, 1},
+		{"an ordinary question is not a boundary",
+			[]string{human("Earlier ask."), use("toolu_a", "Framework", "Which framework?"), result("toolu_a", "Which framework?", "Ratify"), human("Next ask."), cur},
+			"Earlier ask.\n\n---\n\nNext ask.", ScopeWhole, 2},
+		{"a card with another header is not a boundary",
+			[]string{human("Earlier ask."), use("toolu_a", "Other", question), result("toolu_a", question, "Ratify"), human("Next ask."), cur},
+			"Earlier ask.\n\n---\n\nNext ask.", ScopeWhole, 2},
+		{"nothing since a ratified card reuses its turns",
+			[]string{human("Earlier ask."), use("toolu_a", "IntentGate", question), result("toolu_a", question, "Ratify"), cur},
+			"Earlier ask.", ScopeReused, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, err := RootIntentScope([]byte(strings.Join(c.lines, "\n")+"\n"), "toolu_cur")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Text != c.want || s.Kind != c.wantKind || s.Turns != c.wantTurns {
+				t.Errorf("scope = %q (%s, %d turns), want %q (%s, %d)", s.Text, s.Kind, s.Turns, c.want, c.wantKind, c.wantTurns)
+			}
+		})
+	}
+}

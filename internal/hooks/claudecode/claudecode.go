@@ -7,14 +7,31 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 )
 
 // TurnSeparator joins the human turns of a transcript into the root intent.
 const TurnSeparator = "\n\n---\n\n"
 
-// Input is the part of a PreToolUse or PostToolUse hook input the ExitPlanMode hooks use.
-// ToolInput.Plan is set by PreToolUse and ToolResponse.Plan by PostToolUse.
+// Question is one question of an AskUserQuestion tool input.
+type Question struct {
+	Header      string
+	Question    string
+	Options     []Option
+	MultiSelect bool
+}
+
+// Option is one option of a question.
+type Option struct {
+	Label       string
+	Description string
+}
+
+// Input is the part of a PreToolUse or PostToolUse hook input the ExitPlanMode and AskUserQuestion
+// hooks use. ToolInput.Plan is set by PreToolUse and ToolResponse.Plan by PostToolUse. For
+// AskUserQuestion, ToolInput.Questions are the questions asked and ToolResponse.Answers (PostToolUse)
+// maps a question's text to the label the human chose; a question with no string answer is absent.
 type Input struct {
 	HookEventName  string
 	SessionID      string
@@ -22,8 +39,14 @@ type Input struct {
 	CWD            string
 	ToolName       string
 	ToolUseID      string
-	ToolInput      struct{ Plan string }
-	ToolResponse   struct{ Plan string }
+	ToolInput      struct {
+		Plan      string
+		Questions []Question
+	}
+	ToolResponse struct {
+		Plan    string
+		Answers map[string]string
+	}
 }
 
 type rawInput struct {
@@ -49,6 +72,53 @@ func planOf(raw json.RawMessage) string {
 	return v.Plan
 }
 
+// questionsOf returns the "questions" of a tool input that is an AskUserQuestion's; anything
+// else gives none.
+func questionsOf(raw json.RawMessage) []Question {
+	var v struct {
+		Questions []struct {
+			Header      string `json:"header"`
+			Question    string `json:"question"`
+			MultiSelect bool   `json:"multiSelect"`
+			Options     []struct {
+				Label       string `json:"label"`
+				Description string `json:"description"`
+			} `json:"options"`
+		} `json:"questions"`
+	}
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	var qs []Question
+	for _, q := range v.Questions {
+		question := Question{Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
+		for _, o := range q.Options {
+			question.Options = append(question.Options, Option{Label: o.Label, Description: o.Description})
+		}
+		qs = append(qs, question)
+	}
+	return qs
+}
+
+// answersOf returns the "answers" of an AskUserQuestion's output: question text to chosen label.
+// Entries that are not strings are left out.
+func answersOf(raw json.RawMessage) map[string]string {
+	var v struct {
+		Answers map[string]json.RawMessage `json:"answers"`
+	}
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for q, a := range v.Answers {
+		var label string
+		if json.Unmarshal(a, &label) == nil {
+			out[q] = label
+		}
+	}
+	return out
+}
+
 // ParseInput reads a hook input from JSON. Unknown fields are ignored; tool_input and
 // tool_response of another tool may be any JSON and read as having no plan.
 func ParseInput(data []byte) (Input, error) {
@@ -66,6 +136,10 @@ func ParseInput(data []byte) (Input, error) {
 	}
 	in.ToolInput.Plan = planOf(r.ToolInput)
 	in.ToolResponse.Plan = planOf(r.ToolResponse)
+	if r.ToolName == askUserQuestion {
+		in.ToolInput.Questions = questionsOf(r.ToolInput)
+		in.ToolResponse.Answers = answersOf(r.ToolResponse)
+	}
 	return in, nil
 }
 
@@ -79,6 +153,7 @@ type entry struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
+	ToolUseResult json.RawMessage `json:"toolUseResult"` // the structured output of the tool a user entry answers
 }
 
 // turnText returns the text of a human turn's content and false if the entry holds a tool_result
@@ -139,8 +214,108 @@ func humanText(text string) (string, bool) {
 	return text, true
 }
 
-// exitPlanMode is the tool whose approval scopes the root intent.
-const exitPlanMode = "ExitPlanMode"
+// exitPlanMode is the tool whose approval scopes the root intent; a ratified card
+// (askUserQuestion) counts as one (ratification.md §2.1).
+const (
+	exitPlanMode    = "ExitPlanMode"
+	askUserQuestion = "AskUserQuestion"
+)
+
+// The ratify card (ratification.md §2.1): one AskUserQuestion with this header, a question of the
+// form `Ratify the plan in <path> (sha256 <hex>)?` and the options Ratify and Not yet.
+const (
+	RatifyHeader = "IntentGate"
+	RatifyLabel  = "Ratify"
+	NotYetLabel  = "Not yet"
+)
+
+var ratifyQuestion = regexp.MustCompile(`^Ratify the plan in (.+) \(sha256 ([0-9a-f]{64})\)\?$`)
+
+// Card is a recognised ratify card: the plan path as asked and the SHA-256 it was asked with.
+type Card struct {
+	Question string
+	Path     string
+	SHA256   string
+}
+
+// ratifyOptions are the card's options, in order: what RenderCard prints and ParseCard requires.
+var ratifyOptions = []Option{
+	{Label: RatifyLabel, Description: "Write the intent lock for this plan"},
+	{Label: NotYetLabel, Description: "No lock"},
+}
+
+// ParseCard recognises a ratify card: exactly what RenderCard prints, that is exactly one question,
+// header exactly RatifyHeader, text of the ratify form, not multi-select and exactly the options
+// Ratify and Not yet with their fixed descriptions, in that order. Anything else is not a card and
+// false.
+func ParseCard(qs []Question) (Card, bool) {
+	if len(qs) != 1 || qs[0].Header != RatifyHeader || qs[0].MultiSelect || !slices.Equal(qs[0].Options, ratifyOptions) {
+		return Card{}, false
+	}
+	m := ratifyQuestion.FindStringSubmatch(qs[0].Question)
+	if m == nil {
+		return Card{}, false
+	}
+	return Card{Question: qs[0].Question, Path: m[1], SHA256: m[2]}, true
+}
+
+// RatifyQuestionText is the question of the card for a plan at path with this SHA-256.
+func RatifyQuestionText(path, sha256hex string) string {
+	return "Ratify the plan in " + path + " (sha256 " + sha256hex + ")?"
+}
+
+// RenderCard is the AskUserQuestion input for the card, as one JSON object and a newline.
+func RenderCard(path, sha256hex string) []byte {
+	type option struct {
+		Label       string `json:"label"`
+		Description string `json:"description"`
+	}
+	options := make([]option, len(ratifyOptions))
+	for i, o := range ratifyOptions {
+		options[i] = option(o)
+	}
+	card := struct {
+		Header      string   `json:"header"`
+		Question    string   `json:"question"`
+		Options     []option `json:"options"`
+		MultiSelect bool     `json:"multiSelect"`
+	}{RatifyHeader, RatifyQuestionText(path, sha256hex), options, false}
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(card) // a struct of strings can't fail
+	return b.Bytes()
+}
+
+// TranscriptAnswers returns the answers of the AskUserQuestion with this tool_use_id as the harness
+// recorded them in a JSONL transcript: the toolUseResult of the first user entry holding a
+// tool_result for that id. It is the fallback when a PostToolUse input carries no answers. An error
+// result, an entry without answers, a result for another id or a malformed line gives none.
+func TranscriptAnswers(transcript []byte, toolUseID string) map[string]string {
+	if toolUseID == "" {
+		return nil
+	}
+	for _, line := range bytes.Split(transcript, []byte("\n")) {
+		var e entry
+		if len(bytes.TrimSpace(line)) == 0 || json.Unmarshal(line, &e) != nil || e.Type != "user" || e.IsSidechain {
+			continue
+		}
+		for _, b := range planBlocks(e.Message.Content) {
+			if b.Type == "tool_result" && b.ToolUseID == toolUseID {
+				if b.IsError {
+					return nil
+				}
+				return answersOf(e.ToolUseResult) // the first result is the answer
+			}
+		}
+	}
+	return nil
+}
+
+// Ratified reports whether the human chose exactly Ratify for the card in a PostToolUse input.
+func (c Card) Ratified(answers map[string]string) bool {
+	return answers[c.Question] == RatifyLabel
+}
 
 // planBlock is the part of a content block the plan scoping reads: an ExitPlanMode tool_use, or the
 // tool_result that answers one (is_error is true when the human rejected the plan).
@@ -151,6 +326,7 @@ type planBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 	IsError   bool            `json:"is_error"`
 	Content   json.RawMessage `json:"content"`
+	Input     json.RawMessage `json:"input"`
 }
 
 func planBlocks(content json.RawMessage) []planBlock {
@@ -182,6 +358,26 @@ func resultText(content json.RawMessage) string {
 		texts = append(texts, b.Text)
 	}
 	return strings.Join(texts, "\n")
+}
+
+// cardOf is the ratify card a tool_use block asks, if it is one.
+func cardOf(b planBlock) (Card, bool) {
+	if b.Type != "tool_use" || b.Name != askUserQuestion {
+		return Card{}, false
+	}
+	return ParseCard(questionsOf(b.Input))
+}
+
+// cardRatified reports whether the result of a card is the human choosing Ratify: the structured
+// output (toolUseResult) maps the question to Ratify, or the result text says so.
+func cardRatified(c Card, b planBlock, toolUseResult json.RawMessage) bool {
+	if b.IsError {
+		return false
+	}
+	if c.Ratified(answersOf(toolUseResult)) {
+		return true
+	}
+	return strings.Contains(resultText(b.Content), `"`+c.Question+`"="`+RatifyLabel+`"`)
 }
 
 // approved reports whether a plan's result is an approval: not an error and with no denial marker.
@@ -242,7 +438,7 @@ func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy str
 // turns is "".
 //
 // The turns are scoped to one plan (ratification.md §2, "Root intent scope"). A boundary is an
-// ExitPlanMode tool use that comes before currentToolUseID in transcript order (a use after it, or
+// ExitPlanMode tool use, or a ratify card (§2.1) asked with AskUserQuestion, that comes before currentToolUseID in transcript order (a use after it, or
 // the current one, never is) and that was approved: its result, seen before the current use, is not
 // an error and holds no denial marker. A use with no such result is a boundary too, so a truncated
 // transcript cannot leak earlier slices' asks. The text is the turns after the last boundary; if
@@ -250,8 +446,9 @@ func RootIntent(transcript []byte, currentToolUseID string) (text, draftedBy str
 // and it). With no boundary every turn is kept.
 func RootIntentScope(transcript []byte, currentToolUseID string) (Scope, error) {
 	type use struct {
-		turns  int  // the human turns before this tool use
-		denied bool // its result, seen before the current use, is a rejection
+		turns  int   // the human turns before this tool use
+		denied bool  // its result, seen before the current use, is a rejection
+		card   *Card // set when the use is a ratify card
 	}
 	var (
 		turns     []string
@@ -276,7 +473,11 @@ func RootIntentScope(transcript []byte, currentToolUseID string) (Scope, error) 
 			if !seenCur {
 				for _, b := range planBlocks(e.Message.Content) {
 					if k, ok := useByID[b.ToolUseID]; ok && b.Type == "tool_result" {
-						uses[k].denied = !approved(b)
+						if c := uses[k].card; c != nil {
+							uses[k].denied = !cardRatified(*c, b, e.ToolUseResult)
+						} else {
+							uses[k].denied = !approved(b)
+						}
 						delete(useByID, b.ToolUseID) // the first result is the answer
 					}
 				}
@@ -298,7 +499,8 @@ func RootIntentScope(transcript []byte, currentToolUseID string) (Scope, error) 
 				draftedBy = "claude-code/" + e.Message.Model
 			}
 			for _, b := range planBlocks(e.Message.Content) {
-				if b.Type != "tool_use" || b.Name != exitPlanMode || b.ID == "" {
+				card, isCard := cardOf(b)
+				if b.Type != "tool_use" || b.ID == "" || (b.Name != exitPlanMode && !isCard) {
 					continue
 				}
 				if b.ID == currentToolUseID {
@@ -306,7 +508,11 @@ func RootIntentScope(transcript []byte, currentToolUseID string) (Scope, error) 
 				}
 				if !seenCur {
 					useByID[b.ID] = len(uses)
-					uses = append(uses, use{turns: len(turns)})
+					u := use{turns: len(turns)}
+					if isCard {
+						u.card = &card
+					}
+					uses = append(uses, u)
 				}
 			}
 		}
