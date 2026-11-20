@@ -27,3 +27,12 @@ func TestHermetic_PlanReviewEnv(t *testing.T) {
 		t.Fatalf("TestHook_ApprovedPlanWritesLock fails when the shell exports the plan-review provider variables: %v\n%s", err, out)
 	}
 }
+
+// TestMain unsets the plan-review provider variables before any test runs, so every test here (and every
+// subprocess it starts) sees no provider unless it injects Deps.PlanReviewer or sets them with t.Setenv.
+func TestMain(m *testing.M) {
+	for _, k := range []string{"TYPESAFE_API_KEY", "TYPESAFE_BASE_URL", "TYPESAFE_MODEL", "INTENTGATE_PLAN_REVIEW"} {
+		os.Unsetenv(k)
+	}
+	os.Exit(m.Run())
+}
