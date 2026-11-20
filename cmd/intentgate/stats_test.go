@@ -295,3 +295,130 @@ func TestStats_RenamedLockIsNotNew(t *testing.T) {
 		t.Errorf("100d: locks %d, want 1 (the lock keeps its original add time)", got.Locks)
 	}
 }
+
+// mergePR makes a side branch with one commit that writes files (name -> content), then merges it
+// into main with a merge commit at mergeAt.
+func (r *vrepo) mergePR(name string, files map[string]string, sideAt, mergeAt time.Time) {
+	r.t.Helper()
+	r.git("checkout", "-q", "-b", name)
+	if len(files) == 0 {
+		files = map[string]string{name + ".txt": name + "\n"}
+	}
+	for f, c := range files {
+		r.write(f, c)
+	}
+	r.commit(name, sideAt)
+	r.git("checkout", "-q", "main")
+	r.git("add", "-A")
+	r.gitAt(mergeAt, "merge", "-q", "--no-ff", name, "-m", "merge "+name)
+}
+
+type coverageOut struct {
+	MergedPRs         int    `json:"merged_prs"`
+	MergedPRsWithLock int    `json:"merged_prs_with_lock"`
+	LockCoverage      string `json:"lock_coverage"`
+	LockCoverageRatio string `json:"lock_coverage_ratio"`
+	Locks             int    `json:"locks"`
+}
+
+func (r *vrepo) coverage(args ...string) (coverageOut, string) {
+	r.t.Helper()
+	code, stdout, stderr := r.stats(append(args, "--format", "json")...)
+	if code != 0 {
+		r.t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	var d coverageOut
+	if err := json.Unmarshal([]byte(stdout), &d); err != nil {
+		r.t.Fatalf("stdout %q: %v", stdout, err)
+	}
+	return d, stdout
+}
+
+// REQ-0041
+func TestStats_MergedPRCoverage(t *testing.T) {
+	day := func(m time.Month, d int) time.Time { return time.Date(2026, m, d, 10, 0, 0, 0, time.UTC) }
+	lockFile := func(id string, amend func(*lock.Lock)) map[string]string {
+		return map[string]string{lockPath(id): string(statsLock(t, id, "hook", 1000, amend))}
+	}
+
+	repo := func(t *testing.T) *vrepo {
+		t.Helper()
+		r := newVRepo(t)
+		r.mergePR("old", lockFile(statsOutside, nil), day(9, 29), statsOldDate) // before the window, with a lock
+		r.mergePR("one", lockFile(statsAddGlob, addGlob), day(11, 24), day(11, 25))
+		r.mergePR("two", lockFile(statsPlain, nil), day(11, 30), day(12, 1))
+		r.mergePR("three", nil, day(12, 4), day(12, 5)) // no lock
+		r.write(lockPath(statsReratify), string(statsLock(t, statsReratify, "hook", 2000, reratify)))
+		r.commit("a lock straight on main", day(12, 10))
+		r.write("README.md", "# readme, edited\n")
+		r.commit("head", statsHead)
+		return r
+	}
+
+	t.Run("3 merges in the window, 2 bring a valid lock; a direct lock is in neither PR field", func(t *testing.T) {
+		d, _ := repo(t).coverage()
+		if d.MergedPRs != 3 || d.MergedPRsWithLock != 2 || d.LockCoverage != "0.6667" || d.LockCoverageRatio != "2/3" {
+			t.Errorf("merged_prs %d with_lock %d coverage %q ratio %q, want 3 2 0.6667 2/3", d.MergedPRs, d.MergedPRsWithLock, d.LockCoverage, d.LockCoverageRatio)
+		}
+		if d.Locks != 3 {
+			t.Errorf("locks %d, want 3 (the two merged ones and the direct one)", d.Locks)
+		}
+	})
+
+	t.Run("a wider window takes in the old merge", func(t *testing.T) {
+		d, _ := repo(t).coverage("--since", "90d")
+		if d.MergedPRs != 4 || d.MergedPRsWithLock != 3 || d.LockCoverage != "0.7500" || d.LockCoverageRatio != "3/4" {
+			t.Errorf("merged_prs %d with_lock %d coverage %q ratio %q, want 4 3 0.7500 3/4", d.MergedPRs, d.MergedPRsWithLock, d.LockCoverage, d.LockCoverageRatio)
+		}
+	})
+
+	t.Run("a merge whose only lock is invalid is not with a lock", func(t *testing.T) {
+		r := newVRepo(t)
+		r.mergePR("bad", map[string]string{lockPath(statsInvalidID): "not: [a lock\n"}, day(12, 1), day(12, 2))
+		r.write("README.md", "# readme, edited\n")
+		r.commit("head", statsHead)
+		d, _ := r.coverage()
+		if d.MergedPRs != 1 || d.MergedPRsWithLock != 0 || d.LockCoverage != "0.0000" || d.LockCoverageRatio != "0/1" {
+			t.Errorf("merged_prs %d with_lock %d coverage %q ratio %q, want 1 0 0.0000 0/1", d.MergedPRs, d.MergedPRsWithLock, d.LockCoverage, d.LockCoverageRatio)
+		}
+	})
+
+	t.Run("no merge in the window: the coverage is n/a, not 0", func(t *testing.T) {
+		r := repo(t)
+		d, _ := r.coverage("--since", "1d")
+		if d.MergedPRs != 0 || d.MergedPRsWithLock != 0 || d.LockCoverage != "n/a" || d.LockCoverageRatio != "0/0" {
+			t.Errorf("merged_prs %d with_lock %d coverage %q ratio %q, want 0 0 n/a 0/0", d.MergedPRs, d.MergedPRsWithLock, d.LockCoverage, d.LockCoverageRatio)
+		}
+		_, text, _ := r.stats("--since", "1d")
+		if want := "merged PRs: 0, with a lock: 0 (coverage n/a)\n"; !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	})
+
+	t.Run("JSON keys follow amendment_ratio in order, and the text line follows the amendment rate", func(t *testing.T) {
+		r := repo(t)
+		_, js := r.coverage()
+		last := strings.Index(js, `"amendment_ratio"`)
+		if last < 0 {
+			t.Fatalf("no amendment_ratio in %s", js)
+		}
+		for _, key := range []string{`"merged_prs"`, `"merged_prs_with_lock"`, `"lock_coverage"`, `"lock_coverage_ratio"`, `"methods"`} {
+			i := strings.Index(js, key)
+			if i < last {
+				t.Fatalf("key %s is missing or out of order in:\n%s", key, js)
+			}
+			last = i
+		}
+		_, text, _ := r.stats()
+		lines := strings.Split(text, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, "footprint-amendment rate: ") {
+				if i+1 >= len(lines) || lines[i+1] != "merged PRs: 3, with a lock: 2 (coverage 0.6667)" {
+					t.Errorf("the line after the amendment rate is not the merged-PR line:\n%s", text)
+				}
+				return
+			}
+		}
+		t.Errorf("no amendment-rate line in:\n%s", text)
+	})
+}

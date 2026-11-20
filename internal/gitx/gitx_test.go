@@ -528,3 +528,81 @@ func TestGitx_LockAdditions(t *testing.T) {
 		}
 	})
 }
+
+func TestGitx_FirstParentMerges(t *testing.T) {
+	d := func(day int) time.Time { return time.Date(2026, 11, day, 10, 0, 0, 0, time.UTC) }
+	merge := func(t *testing.T, dir, branch string, side, mergeAt time.Time) string {
+		t.Helper()
+		return merge2(t, dir, branch, side, mergeAt)
+	}
+
+	t.Run("two merges on main, newest first, at their committer times", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		m1 := merge(t, dir, "one", d(1), d(2))
+		m2 := merge(t, dir, "two", d(3), d(4))
+		got, err := FirstParentMerges(dir, "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []Merge{{Commit: m2, Time: d(4)}, {Commit: m1, Time: d(2)}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("merges = %+v, want %+v", got, want)
+		}
+	})
+
+	t.Run("a merge inside a merged side branch is not listed", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		git(t, dir, "checkout", "-q", "-b", "side")
+		writeAndAdd(t, dir, "a.txt")
+		commitOn(t, dir, d(1), "commit", "-q", "-m", "a")
+		merge2(t, dir, "inner", d(2), d(3)) // merges inner into side
+		git(t, dir, "checkout", "-q", "main")
+		writeAndAdd(t, dir, "m.txt")
+		commitOn(t, dir, d(4), "commit", "-q", "-m", "m")
+		commitOn(t, dir, d(5), "merge", "-q", "--no-ff", "side", "-m", "merge side")
+		outer := git(t, dir, "rev-parse", "HEAD")
+		got, err := FirstParentMerges(dir, "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []Merge{{Commit: outer, Time: d(5)}}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("merges = %+v, want only the outer merge %+v", got, want)
+		}
+	})
+
+	t.Run("a fast-forward-only history has no merges", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		writeAndAdd(t, dir, "a.txt")
+		commitOn(t, dir, d(1), "commit", "-q", "-m", "a")
+		got, err := FirstParentMerges(dir, "HEAD")
+		if err != nil || len(got) != 0 {
+			t.Errorf("merges = %+v, %v; want none", got, err)
+		}
+	})
+
+	t.Run("a bad rev is an error", func(t *testing.T) {
+		isolate(t)
+		dir := repoOn(t, "main")
+		for _, rev := range []string{"nosuchrev", "--all", ""} {
+			if got, err := FirstParentMerges(dir, rev); err == nil {
+				t.Errorf("rev %q: merges %+v, nil; want an error", rev, got)
+			}
+		}
+	})
+}
+
+// merge2 merges a new one-commit branch into the checked-out branch, with --no-ff at mergeAt.
+func merge2(t *testing.T, dir, branch string, side, mergeAt time.Time) string {
+	t.Helper()
+	cur := git(t, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	git(t, dir, "checkout", "-q", "-b", branch)
+	writeAndAdd(t, dir, branch+".txt")
+	commitOn(t, dir, side, "commit", "-q", "-m", branch)
+	git(t, dir, "checkout", "-q", cur)
+	commitOn(t, dir, mergeAt, "merge", "-q", "--no-ff", branch, "-m", "merge "+branch)
+	return git(t, dir, "rev-parse", "HEAD")
+}
