@@ -68,7 +68,7 @@ const (
 	exitPlanMode    = "ExitPlanMode"
 	askUserQuestion = "AskUserQuestion"
 	pendingTTL      = 24 * time.Hour
-	usage           = "usage: intentgate hook claude-code pre|post|print-config\nusage: intentgate hook claude-code ratify-question <plan path>\n" + lockUsage + amendUsage + verifyUsage + publishUsage + statsUsage + initUsage
+	usage           = "usage: intentgate hook claude-code pre|post|print-config\nusage: intentgate hook claude-code ratify-question <plan path>\n" + lockUsage + amendUsage + verifyUsage + acceptanceUsage + publishUsage + statsUsage + initUsage
 )
 
 // Run executes the intentgate command line (hook, lock, amend, verify) and returns the exit code. `hook claude-code pre|post`
@@ -90,6 +90,8 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 			return runVerify(args[1:], stdout, deps)
 		case "publish":
 			return runPublish(args[1:], stdout, deps)
+		case "acceptance":
+			return runAcceptance(args[1:], stdout, deps)
 		case "stats":
 			return runStats(args[1:], stdout, deps)
 		case "init":
