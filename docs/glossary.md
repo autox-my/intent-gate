@@ -53,4 +53,4 @@ each meaning has its own row.
 | **slice spec** | `docs/specs/S-NN-*.md`: the claim ids, allowed paths and red-first tests for one slice. Closest to the playbook's `plan.md`. | 4 SPEC |
 | **plan** | The agent's plan, approved in plan mode, ending in an `intentgate` block. In this repo the slice spec plays that part. | Product loop: plan mode, before code |
 | **intent lock** | `.intent/<id>.yml` on the PR branch: criteria, footprints, hashes, ratification record. A slice spec's `intentgate` block can be locked with `intentgate lock --from-plan`. | Product loop: written by the hook or `lock`, at human ratification |
-| **Baseline** | `baselines/phase0.json` and its signature: the signed set of claim addresses a release is checked against. Signing is the human's act. | 8 MERGE (release) |
+| **Baseline** | `baselines/phase0-2.json` and its signature: the signed set of claim addresses a release is checked against. Signing is the human's act. | 8 MERGE (release) |

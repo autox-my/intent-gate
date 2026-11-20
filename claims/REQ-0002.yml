@@ -14,3 +14,4 @@ relations: []
 tests:
   - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_ApprovedPlanWritesLock"
   - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_RejectedPlanWritesNothing"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_RatifyCardWritesLock"
