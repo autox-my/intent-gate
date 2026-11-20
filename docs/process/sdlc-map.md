@@ -90,7 +90,7 @@ The playbook's chain is `intent.md → spec.md → plan.md → diff → review f
 - Done in S-15: `docs/requirements.md` is marked as archived (header pointing to `claims/`).
 - Done in S-15: a glossary row per artifact: intent, claim, design element, ADR, slice spec, plan, intent lock, Baseline.
 - Dogfood: each slice spec ends with an `intentgate` block (claims as criteria, allowed paths as footprint). Since S-17 this repo has run `intentgate init`: the orchestrator presents the spec as a plan, and approving it writes the lock. Where the hook can't run, `scripts/lock-slice.sh <S-NN>` runs `lock --from-plan` for the spec. Then the PR check does the orchestrator's path check. Locking is the human's act.
-- Phase 1 ADR: a committed, product-owner-accepted `intent.md` as a lock source.
+- Phase 1: ADR 0006 (Proposed) lets a committed, code-owner-approved `intents/<slug>.md` be a lock's root intent, opt-in; claims, design and slices follow its acceptance.
 
 ## 3 · End-to-end lifecycle and data flow
 
