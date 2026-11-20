@@ -1,0 +1,26 @@
+schema: intentgate.lock/1
+id: 01M7VM25GS4X5D8QJ6E6QYQT5N
+revision: 1
+base_ref: main
+root_intent:
+  sha256: f4125fb3746b7e4fdb0a957759e219560bcf624b36333248e783f78ac8c0c684
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: cmd/intentgate tests pass whether or not the shell exports the plan-review provider variables (TYPESAFE_API_KEY, TYPESAFE_BASE_URL, TYPESAFE_MODEL, INTENTGATE_PLAN_REVIEW)
+    footprint:
+      - cmd/intentgate/*_test.go
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-20T04:40:00Z"
+  method: hook
+  review_duration_ms: 56756
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:a1d76b6bbc1d05ca7ce44553f28c2e4dcfe2b49cca9a52445e608f847271c845
