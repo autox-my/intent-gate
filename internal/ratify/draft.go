@@ -154,3 +154,18 @@ func fenceRun(s string) (byte, int) {
 	}
 	return s[0], n
 }
+
+// Drafted is what a plan's block gives: the criteria and the committed intent it names, if any.
+type Drafted struct {
+	Criteria []lock.Criterion
+	Intent   string
+}
+
+// ErrIntent marks a drafting error about the block's intent: key.
+var ErrIntent = errors.New("intent")
+
+// DraftPlan is DraftCriteria that also returns the intent: key.
+func DraftPlan(plan string) (Drafted, error) {
+	cs, err := DraftCriteria(plan)
+	return Drafted{Criteria: cs}, err
+}

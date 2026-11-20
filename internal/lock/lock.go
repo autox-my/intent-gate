@@ -58,6 +58,8 @@ type RootIntent struct {
 	SHA256     string `yaml:"sha256" json:"sha256"`
 	Source     string `yaml:"source" json:"source"`
 	Redactions *int   `yaml:"redactions,omitempty" json:"redactions,omitempty"`
+	Path       string `yaml:"path,omitempty" json:"path,omitempty"`
+	Blob       string `yaml:"blob,omitempty" json:"blob,omitempty"`
 }
 
 // Criterion is one acceptance criterion with its footprint globs.

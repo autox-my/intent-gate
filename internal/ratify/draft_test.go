@@ -1,6 +1,7 @@
 package ratify
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -107,6 +108,70 @@ func TestDraftCriteria(t *testing.T) {
 		_, err := DraftCriteria(block("intentgate", manyCriteria(9)))
 		if err == nil || !strings.Contains(err.Error(), "split") {
 			t.Fatalf("error %v should ask for the plan to be split", err)
+		}
+	})
+}
+
+// REQ-0043
+func TestDraft_IntentKey(t *testing.T) {
+	t.Run("the intent key parses, next to criteria", func(t *testing.T) {
+		for _, body := range []string{
+			"intent: intents/checkout-v2.md\n" + twoCriteria,
+			twoCriteria + "intent: intents/checkout-v2.md\n",
+			"intent: \"intents/checkout-v2.md\"\n" + twoCriteria,
+		} {
+			d, err := DraftPlan("# Plan\n\n" + block("intentgate", body))
+			if err != nil {
+				t.Fatalf("DraftPlan: %v\n%s", err, body)
+			}
+			if d.Intent != "intents/checkout-v2.md" || len(d.Criteria) != 2 || d.Criteria[1].ID != "C2" {
+				t.Errorf("got intent %q, criteria %+v", d.Intent, d.Criteria)
+			}
+		}
+	})
+	t.Run("no intent key leaves the intent empty", func(t *testing.T) {
+		d, err := DraftPlan(block("intentgate", twoCriteria))
+		if err != nil || d.Intent != "" || len(d.Criteria) != 2 {
+			t.Fatalf("got %+v, err %v", d, err)
+		}
+	})
+	t.Run("DraftCriteria still returns the criteria of a plan with an intent", func(t *testing.T) {
+		got, err := DraftCriteria(block("intentgate", "intent: intents/checkout-v2.md\n"+twoCriteria))
+		if err != nil || len(got) != 2 {
+			t.Fatalf("got %d criteria, err %v", len(got), err)
+		}
+	})
+	t.Run("an unknown top-level key is still rejected", func(t *testing.T) {
+		for _, body := range []string{
+			"intent: intents/checkout-v2.md\nowner: me\n" + twoCriteria,
+			"intents: intents/checkout-v2.md\n" + twoCriteria,
+			"Intent: intents/checkout-v2.md\n" + twoCriteria,
+		} {
+			d, err := DraftPlan(block("intentgate", body))
+			if err == nil || !strings.HasPrefix(err.Error(), "no lock: ") {
+				t.Errorf("want a no-lock error, got %+v, %v\n%s", d, err, body)
+			}
+			if errors.Is(err, ErrIntent) {
+				t.Errorf("an unknown key is a drafting error, not an intent error: %v", err)
+			}
+		}
+	})
+	t.Run("a value that breaks the path rule is an intent error", func(t *testing.T) {
+		for _, v := range []string{
+			"/intents/x.md", "intents/../x.md", "../x.md", "x.md", "docs/x.md", "intents/x.txt", "intents/X.md", "intents/a/b.md",
+			"intents/.md", "intents/", "\"\"", "1", "true", "[intents/x.md]", "null", "~",
+		} {
+			d, err := DraftPlan(block("intentgate", "intent: "+v+"\n"+twoCriteria))
+			if err == nil {
+				t.Errorf("intent: %s accepted as %+v", v, d)
+				continue
+			}
+			if !errors.Is(err, ErrIntent) || !strings.HasPrefix(err.Error(), "no lock: ") {
+				t.Errorf("intent: %s: error %v, want ErrIntent starting \"no lock: \"", v, err)
+			}
+			if d.Criteria != nil || d.Intent != "" {
+				t.Errorf("intent: %s: an error must come with nothing, got %+v", v, d)
+			}
 		}
 	})
 }

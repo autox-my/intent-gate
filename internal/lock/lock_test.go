@@ -864,3 +864,182 @@ func TestLock_PlanReviewSchema(t *testing.T) {
 		}
 	})
 }
+
+// committedLock is validLock with a committed intent as its root intent (intent-lock.md §6).
+func committedLock() Lock {
+	l := validLock()
+	l.RootIntent = RootIntent{
+		SHA256: strings.Repeat("ab", 32), Source: "committed-intent", Redactions: intp(0),
+		Path: "intents/checkout-v2.md", Blob: strings.Repeat("3f", 20),
+	}
+	return l
+}
+
+// REQ-0044
+func TestLock_CommittedIntentFields(t *testing.T) {
+	t.Run("a committed-intent lock with path and blob is valid, and round-trips", func(t *testing.T) {
+		l := committedLock()
+		if ps := Validate(l); len(ps) != 0 {
+			t.Fatalf("Validate: %v", ps)
+		}
+		data, err := Marshal(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"source: committed-intent", "path: intents/checkout-v2.md", "blob: " + strings.Repeat("3f", 20)} {
+			if !strings.Contains(string(data), want) {
+				t.Errorf("Marshal lacks %q:\n%s", want, data)
+			}
+		}
+		back, err := Parse(data)
+		if err != nil || !reflect.DeepEqual(back, l) {
+			t.Errorf("round trip: %v\n%+v\nwant %+v", err, back, l)
+		}
+	})
+	t.Run("a 64-hex blob (SHA-256 object format) is valid", func(t *testing.T) {
+		l := committedLock()
+		l.RootIntent.Blob = strings.Repeat("0a", 32)
+		if ps := Validate(l); len(ps) != 0 {
+			t.Errorf("Validate: %v", ps)
+		}
+	})
+	t.Run("path and blob are required with that source", func(t *testing.T) {
+		noPath, noBlob := committedLock(), committedLock()
+		noPath.RootIntent.Path = ""
+		noBlob.RootIntent.Blob = ""
+		if ps := Validate(noPath); !hasProblem(ps, "root_intent.path") {
+			t.Errorf("no path: problems %v", ps)
+		}
+		if ps := Validate(noBlob); !hasProblem(ps, "root_intent.blob") {
+			t.Errorf("no blob: problems %v", ps)
+		}
+	})
+	t.Run("path and blob are refused with any other source", func(t *testing.T) {
+		for _, src := range []string{"claude-code-session", "issue", "plan-file"} {
+			withPath, withBlob := validLock(), validLock()
+			withPath.RootIntent.Source, withBlob.RootIntent.Source = src, src
+			withPath.RootIntent.Path = "intents/checkout-v2.md"
+			withBlob.RootIntent.Blob = strings.Repeat("3f", 20)
+			if ps := Validate(withPath); !hasProblem(ps, "root_intent.path") {
+				t.Errorf("%s with a path: problems %v", src, ps)
+			}
+			if ps := Validate(withBlob); !hasProblem(ps, "root_intent.blob") {
+				t.Errorf("%s with a blob: problems %v", src, ps)
+			}
+		}
+	})
+	t.Run("a path outside intents/<slug>.md is a problem", func(t *testing.T) {
+		for _, p := range []string{
+			"checkout-v2.md", "intents/checkout-v2.txt", "intents/.md", "intents/-x.md", "intents/Checkout.md",
+			"intents/a/b.md", "intents/../x.md", "/intents/x.md", "docs/intents/x.md", "intents/x y.md", "intents/x.md\n", ".intent/x.md",
+		} {
+			l := committedLock()
+			l.RootIntent.Path = p
+			if ps := Validate(l); !hasProblem(ps, "root_intent.path") {
+				t.Errorf("path %q: problems %v", p, ps)
+			}
+		}
+		for _, p := range []string{"intents/a.md", "intents/0.md", "intents/checkout-v2.md", "intents/a-b-c.md"} {
+			l := committedLock()
+			l.RootIntent.Path = p
+			if ps := Validate(l); len(ps) != 0 {
+				t.Errorf("path %q: %v", p, ps)
+			}
+		}
+	})
+	t.Run("a blob that is not 40 or 64 lower-case hex is a problem", func(t *testing.T) {
+		for _, b := range []string{"3f", strings.Repeat("3f", 19), strings.Repeat("3f", 21), strings.Repeat("3F", 20), strings.Repeat("zz", 20), strings.Repeat("3f", 20) + "\n"} {
+			l := committedLock()
+			l.RootIntent.Blob = b
+			if ps := Validate(l); !hasProblem(ps, "root_intent.blob") {
+				t.Errorf("blob %q: problems %v", b, ps)
+			}
+		}
+	})
+	t.Run("path and blob are in the hash", func(t *testing.T) {
+		base := committedLock()
+		other := committedLock()
+		other.RootIntent.Path = "intents/checkout-v3.md"
+		otherBlob := committedLock()
+		otherBlob.RootIntent.Blob = strings.Repeat("4a", 20)
+		seen := map[string]bool{}
+		for _, l := range []Lock{base, other, otherBlob, validLock()} {
+			h, err := Hash(l)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if seen[h] {
+				t.Errorf("hash %s repeats: path or blob is not counted in the hash", h)
+			}
+			seen[h] = true
+		}
+	})
+	t.Run("a lock with another source hashes and marshals as before", func(t *testing.T) {
+		l, err := Parse(readFixture(t, "valid.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h, err := Hash(l); err != nil || h != goldenHash {
+			t.Errorf("hash = %q (%v), want the S-01 golden %q", h, err, goldenHash)
+		}
+		data, _ := Marshal(l)
+		if strings.Contains(string(data), "path:") || strings.Contains(string(data), "blob:") {
+			t.Errorf("Marshal wrote path or blob for a lock without a committed intent:\n%s", data)
+		}
+	})
+	t.Run("the JSON schema describes it", func(t *testing.T) {
+		raw, err := os.ReadFile("../../schema/intentgate.lock.v1.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s map[string]any
+		if err := json.Unmarshal(raw, &s); err != nil {
+			t.Fatal(err)
+		}
+		obj := func(v any) map[string]any { m, _ := v.(map[string]any); return m } // nil-safe: a missing key is a failure, not a panic
+		ri := obj(obj(s["properties"])["root_intent"])
+		props := obj(ri["properties"])
+		if enum, _ := obj(props["source"])["enum"].([]any); !containsAny(enum, "committed-intent") {
+			t.Errorf("schema: root_intent.source enum = %v, want committed-intent in it", enum)
+		}
+		pathRE, _ := obj(props["path"])["pattern"].(string)
+		blobRE, _ := obj(props["blob"])["pattern"].(string)
+		if re, err := regexp.Compile(pathRE); err != nil || pathRE == "" || !re.MatchString("intents/checkout-v2.md") || re.MatchString("intents/../x.md") || re.MatchString("x.md") {
+			t.Errorf("schema: root_intent.path pattern %q (%v)", pathRE, err)
+		}
+		if re, err := regexp.Compile(blobRE); err != nil || blobRE == "" || !re.MatchString(strings.Repeat("3f", 20)) || !re.MatchString(strings.Repeat("3f", 32)) || re.MatchString(strings.Repeat("3f", 21)) {
+			t.Errorf("schema: root_intent.blob pattern %q (%v)", blobRE, err)
+		}
+		if ri["additionalProperties"] != false {
+			t.Error("schema: root_intent accepts unknown keys")
+		}
+		for _, k := range []string{"if", "then", "else"} {
+			if ri[k] == nil && !hasKeyIn(ri["allOf"], k) {
+				t.Errorf("schema: root_intent has no %q (both-iff-committed-intent rule)", k)
+			}
+		}
+		if id, _ := s["$id"].(string); id != "https://intentgate.dev/schema/intentgate.lock.v1.json" {
+			t.Errorf("schema: $id changed to %q", id)
+		}
+	})
+}
+
+func containsAny(list []any, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// hasKeyIn reports whether any object in the allOf list v has the key k.
+func hasKeyIn(v any, k string) bool {
+	list, _ := v.([]any)
+	for _, e := range list {
+		if m, ok := e.(map[string]any); ok && m[k] != nil {
+			return true
+		}
+	}
+	return false
+}
