@@ -70,3 +70,26 @@ YAML is the human-facing format; the canonical JSON is what gets hashed, so refo
 A lock is valid for at most **14 days** from `ratification.ratified_at`, measured against the **evaluation time** (core-contracts.md §2), not the wall clock. The window is closed at both ends: valid when `ratified_at ≤ t ≤ ratified_at + 14 days`. An evaluation time before `ratified_at` is not valid, so a future-dated lock cannot extend its life past 14 days. There is no clock-skew allowance, because one would let a lock live longer than the pin allows. An expired lock makes its criteria **suspect**. It isn't deleted and doesn't block. The fix is `intentgate amend <id> --reratify`, which creates a new revision with a new `ratified_at`.
 
 The 14-day limit is a default in Phase 0. If it becomes configurable, REQ-0022 must change first, because its pin is `LE 14 days`.
+
+## 6. Committed intent as the root intent (ADR 0006, REQ-0043, REQ-0044)
+
+A team may make a lock's root intent a committed, reviewed file instead of the private prompt. It is opt-in per lock; every other lock keeps §1's split.
+
+- **Where.** `intents/<slug>.md` at the repository top level: `<slug>` is `[a-z0-9][a-z0-9-]*`, one file per piece of work, outside `.intent/` (which holds only locks). Several locks may name the same intent.
+- **How a plan names it.** The plan's `intentgate` block gets one optional top-level key, `intent: intents/<slug>.md`, next to `criteria:`. The same key works for every path that reads the block: the plan-approval hook, the ratify card and `lock --from-plan`. `--prompt` together with `intent:` is a usage error (two root intents). The issue path has no `intent:` (the issue is its root intent).
+- **What must hold at lock time.** The file is tracked, and its bytes in the working tree equal the blob at `HEAD` (no uncommitted edits), so the lock binds to text anyone can read from git. Otherwise: no lock, exit 3, with the reason. Whether the intent was *accepted* (merged through a code-owner-approved PR, ADR 0006) is the PR check's job (REQ-0045, a later slice), not the lock command's.
+- **What the lock records.**
+
+  ```yaml
+  root_intent:
+    sha256: 5be1…                     # SHA-256 of the file's bytes, as for any root intent
+    source: committed-intent          # new value
+    redactions: 0                     # always 0: the text is public by the team's choice
+    path: intents/checkout-v2.md      # new, required iff source is committed-intent
+    blob: 3f9a…                       # new, the git blob id at HEAD (40 or 64 hex), required iff committed-intent
+  ```
+
+  `path` and `blob` are in the hashed content (§3). Validation: both present iff `source: committed-intent`, absent otherwise; `path` matches `^intents/[a-z0-9][a-z0-9-]*\.md$`; `blob` is 40 or 64 lowercase hex. The schema stays `intentgate.lock/1` with the two optional keys; an older `intentgate` reports such a lock as UNVERIFIABLE (unknown keys), which only affects teams that opted in.
+- **No local record.** No `root-intent.md` is written for a committed intent: git is the verbatim store (REQ-0006), and the committed lock still holds no intent text (REQ-0014), only its path and hashes.
+- **Secrets.** The secret scan still runs on the file before the lock is written (REQ-0015). A hit is no lock, exit 3, "the committed intent contains what looks like a secret": the file is already public, so masking it in the lock would hide nothing; the fix is in the file and its history.
+- **Plan review.** The review compares the plan with the intent file's text, as it does with a prompt.
