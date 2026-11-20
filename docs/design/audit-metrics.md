@@ -39,4 +39,8 @@ The rate is **derived, not collected**. Every amendment is written into the lock
 footprint-amendment rate = locks with ≥ 1 footprint amendment / locks merged, per 30 days
 ```
 
-`intentgate stats --since 30d` prints it with the other Phase 0 signals that git history alone can answer: lock count, ratification methods and median review duration. The window ends at the `HEAD` commit's committer time, not the wall clock, so the same commit gives the same numbers. Locks per merged PR and findings per PR need the forge or the CI artifacts and come later. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
+`intentgate stats --since 30d` prints it with the other Phase 0 signals that git history alone can answer: lock count, ratification methods and median review duration. The window ends at the `HEAD` commit's committer time, not the wall clock, so the same commit gives the same numbers. Findings per PR need the CI artifacts and come later. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
+
+### Merged PRs and lock coverage
+
+For repositories that merge PRs with merge commits, `stats` also counts the merges on `HEAD`'s first-parent history inside the window (`merged_prs`), those that are the adding commit of at least one valid lock (`merged_prs_with_lock`), and their ratio (`lock_coverage`, `n/a` with no merges). It is the share of merged work that went through an intent lock. Squash- and rebase-merged PRs leave no merge commit and are invisible here; counting them needs the forge.
