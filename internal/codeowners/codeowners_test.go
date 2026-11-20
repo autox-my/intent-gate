@@ -93,4 +93,54 @@ func TestCodeowners(t *testing.T) {
 			t.Errorf("Owners = %v, want [a]", got)
 		}
 	})
+
+	t.Run("a line GitHub treats as invalid is skipped: it neither owns nor un-owns", func(t *testing.T) {
+		for _, tc := range []struct{ line, path string }{
+			{`\docs/a.md @bad`, "docs/a.md"},        // a backslash: no leading one is stripped
+			{`docs/[a].md @bad`, "docs/[a].md"},     // a range (here also a literal name)
+			{`!docs/a.md @bad`, "!docs/a.md"},       // negation
+			{`docs/a.md not-an-owner`, "docs/a.md"}, // an owner that is none of user, team, email
+			{`docs/a.md @alice#note`, "docs/a.md"},  // a "#" glued to an owner is not a comment
+			{`docs/a.md @good @`, "docs/a.md"},      // one bad owner spoils the line
+		} {
+			f := Parse([]byte("* @first\n" + tc.line + "\n"))
+			if got := names(f.Owners(tc.path)); !reflect.DeepEqual(got, []string{"first"}) {
+				t.Errorf("line %q: Owners(%q) = %v, want the earlier line's [first]", tc.line, tc.path, got)
+			}
+		}
+		// an owner-less line is valid (it un-owns), unlike one with a bad owner
+		g := Parse([]byte("* @first\n/docs/a.md\n"))
+		if got := g.Owners("docs/a.md"); got != nil {
+			t.Errorf("an owner-less line must un-own, got %v", got)
+		}
+		// no leading backslash is stripped: "\#file" is skipped, not a pattern for "#file"
+		h := Parse([]byte("\\#file @bad\n"))
+		if got := h.Owners("#file"); got != nil {
+			t.Errorf("a line starting with a backslash must be skipped, got %v", got)
+		}
+	})
+
+	t.Run("a directory pattern ending in ** covers only what is inside a directory below that point", func(t *testing.T) {
+		for _, tc := range []struct {
+			pattern string
+			match   []string
+			miss    []string
+		}{
+			{"/**/", []string{"docs/a.md", "a/b/c.md"}, []string{"README.md"}},
+			{"**/", []string{"docs/a.md", "a/b/c.md"}, []string{"README.md"}},
+			{"a/**/", []string{"a/b/c.md", "a/b/c/d.md"}, []string{"a/c.md", "a", "x/a/b/c.md"}},
+		} {
+			f := Parse([]byte(tc.pattern + " @owner\n"))
+			for _, p := range tc.match {
+				if got := names(f.Owners(p)); !reflect.DeepEqual(got, []string{"owner"}) {
+					t.Errorf("pattern %q: Owners(%q) = %v, want [owner]", tc.pattern, p, got)
+				}
+			}
+			for _, p := range tc.miss {
+				if got := f.Owners(p); got != nil {
+					t.Errorf("pattern %q: Owners(%q) = %v, want none", tc.pattern, p, got)
+				}
+			}
+		}
+	})
 }

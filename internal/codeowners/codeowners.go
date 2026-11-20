@@ -2,7 +2,10 @@
 // pure: no I/O.
 package codeowners
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // Locations are the places GitHub looks for the file, in the order it uses: the first that exists
 // at a revision is the one that counts.
@@ -36,33 +39,45 @@ type rule struct {
 }
 
 // Parse reads a CODEOWNERS file. A line is a pattern followed by owners; "#" starts a comment
-// (at the start of a line, or after whitespace); a blank line is skipped.
+// (at the start of a line, or after whitespace); a blank line is skipped. A line GitHub treats as
+// invalid is skipped, as GitHub skips it: it neither owns nor un-owns. That is a pattern with a
+// backslash, "[" or "]" (escaping, ranges and negation are gitignore rules CODEOWNERS does not
+// support) or a leading "!", and a line with any owner that is not @user, @org/team or an email.
 func Parse(data []byte) *File {
 	f := &File{}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := fieldsOf(line)
-		if len(fields) == 0 {
+		if len(fields) == 0 || !validPattern(fields[0]) {
 			continue
 		}
 		r := newRule(fields[0])
+		valid := true
 		for _, o := range fields[1:] {
-			r.owners = append(r.owners, classify(o))
+			c := classify(o)
+			if c.Kind == Other {
+				valid = false
+				break
+			}
+			r.owners = append(r.owners, c)
 		}
-		f.rules = append(f.rules, r)
+		if valid {
+			f.rules = append(f.rules, r)
+		}
 	}
 	return f
 }
 
-// fieldsOf splits a line on whitespace and stops at the first field that starts a comment. A
-// leading backslash lets a pattern start with "#" ("\#file").
+func validPattern(p string) bool {
+	return !strings.HasPrefix(p, "!") && !strings.ContainsAny(p, `\[]`)
+}
+
+// fieldsOf splits a line on whitespace and stops at the first field that starts a comment. A "#"
+// glued to the end of a field is not a comment.
 func fieldsOf(line string) []string {
 	var out []string
-	for i, tok := range strings.Fields(line) {
+	for _, tok := range strings.Fields(line) {
 		if strings.HasPrefix(tok, "#") {
 			break
-		}
-		if i == 0 {
-			tok = strings.TrimPrefix(tok, `\`)
 		}
 		out = append(out, tok)
 	}
@@ -80,15 +95,19 @@ func newRule(pattern string) rule {
 	return r
 }
 
+var (
+	userRe  = regexp.MustCompile(`^@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$`)
+	teamRe  = regexp.MustCompile(`^@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+$`)
+	emailRe = regexp.MustCompile(`^[^@\s#]+@[^@\s#]+$`)
+)
+
 func classify(tok string) Owner {
 	switch {
-	case strings.HasPrefix(tok, "@") && len(tok) > 1:
-		name := tok[1:]
-		if strings.Contains(name, "/") {
-			return Owner{name, Team}
-		}
-		return Owner{name, User}
-	case strings.Contains(tok, "@") && !strings.HasPrefix(tok, "@") && !strings.HasSuffix(tok, "@"):
+	case userRe.MatchString(tok):
+		return Owner{tok[1:], User}
+	case teamRe.MatchString(tok):
+		return Owner{tok[1:], Team}
+	case emailRe.MatchString(tok):
 		return Owner{tok, Email}
 	}
 	return Owner{tok, Other}
@@ -117,6 +136,8 @@ func (r rule) matches(path []string) bool {
 	// segment covers exactly what it matches, and "/**" needs at least one thing inside.
 	minRest, anyRest := 0, true
 	switch {
+	case last == "**" && r.dirOnly:
+		minRest = 2 // "**/" is a directory below this point, and a path inside it
 	case last == "**":
 		minRest = 1
 	case r.dirOnly:

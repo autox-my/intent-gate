@@ -315,6 +315,15 @@ func TestAcceptance(t *testing.T) {
 			wantStatus: "unknown", wantReason: "no code owner for " + accIntent, wantPR: 12,
 		},
 		{
+			name: "a line with an invalid owner is skipped, so the earlier line's owners decide",
+			scenario: func(f *accAPI, c string) accScenario {
+				f.pulls[c] = reply{body: "[" + mergedPull(12) + "]"}
+				f.reviews[12] = reply{body: reviewsOf("alice:APPROVED")}
+				return accScenario{codeowners: map[string]string{"CODEOWNERS": "/intents/ @alice\n/intents/ not-an-owner\n/intents/ @alice#comment\n"}}
+			},
+			wantStatus: "accepted", wantReason: "approved in #12 by its code owner @alice", wantPR: 12,
+		},
+		{
 			name: "unknown: the owner is a team",
 			scenario: func(f *accAPI, c string) accScenario {
 				f.pulls[c] = reply{body: "[" + mergedPull(12) + "]"}

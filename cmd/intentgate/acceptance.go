@@ -253,7 +253,7 @@ func (j *judge) judge(l lock.Lock) acceptanceIntent {
 		}
 	}
 	for _, o := range owners {
-		if o.Kind != codeowners.User {
+		if o.Kind == codeowners.Team || o.Kind == codeowners.Email {
 			return set(statusUnknown, "owned by a team or an email; checking membership needs more than the Action's token")
 		}
 	}
