@@ -388,3 +388,14 @@ func Resolve(dir, rev string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// Merge is a commit with two or more parents on a first-parent history.
+type Merge struct {
+	Commit string
+	Time   time.Time // the commit's committer time, UTC
+}
+
+// FirstParentMerges lists the merge commits on the first-parent history of rev, newest first.
+func FirstParentMerges(dir, rev string) ([]Merge, error) {
+	return nil, nil // stub: the S-19 tests fail until this is written
+}
