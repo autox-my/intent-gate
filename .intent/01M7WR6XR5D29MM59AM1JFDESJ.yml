@@ -1,0 +1,43 @@
+schema: intentgate.lock/1
+id: 01M7WR6XR5D29MM59AM1JFDESJ
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 222602ce76e008b62391c65feea30e6e0174f966af9c138b0d88dd62bd80510d
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: 'REQ-0045: The PR check shall report whether each committed intent file was approved by a code owner.'
+    footprint:
+      - cmd/intentgate/**
+      - internal/codeowners/**
+      - internal/forge/github/**
+      - internal/gitx/**
+      - action/**
+      - schema/intentgate.acceptance.v1.json
+      - claims/REQ-0045.yml
+      - docs/design/pr-check.md
+  - id: C2
+    text: The next Baseline (phase0-4) attests REQ-0045 and its satisfaction link, and scripts/check.sh verifies it
+    footprint:
+      - .req/satisfied
+      - baselines/**
+      - decisions/**
+      - scripts/check.sh
+      - docs/glossary.md
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-20T15:11:44Z"
+  method: hook
+  review_duration_ms: 197060
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:91e03dc5f2ec525f656882096e83224e739007340b0a564f1702ba75f8d49e3d
