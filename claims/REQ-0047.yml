@@ -9,4 +9,6 @@ rationale:
   rejected_alternatives: ["a built-in list of governance paths (docs/adr/**, claims/**, workflows): CODEOWNERS and branch protection guard those, and they differ per repo"]
   assumptions: []
 relations: []
-tests: []
+tests:
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestLock_RepoWideWarning"
+  - "github.com/autox-my/intent-gate/cmd/intentgate::TestHook_RepoWideWarning"

@@ -160,7 +160,7 @@ func Text(r verify.Result) string {
 }
 
 // reasonText explains a suspect reason in a sentence.
-func reasonText(reason string) string {
+func reasonText(l verify.LockResult, reason string) string {
 	switch reason {
 	case verify.ReasonExpired:
 		return "the lock was not valid at the time of this check (it lives 14 days from ratification)"
@@ -170,8 +170,23 @@ func reasonText(reason string) string {
 		return "this pull request changes a lock that was already on the base branch"
 	case verify.ReasonRetargeted:
 		return "the lock was ratified for a different base branch than this pull request's"
+	case verify.ReasonRepoWide:
+		return "a footprint glob matches every path, so the footprint check cannot flag anything for it: " + repoWideList(l)
 	}
 	return reason
+}
+
+// repoWideList names each criterion and repo-wide glob of a lock, in the lock's order.
+func repoWideList(l verify.LockResult) string {
+	var parts []string
+	for _, c := range l.Criteria {
+		for _, g := range c.Footprint {
+			if footprint.RepoWide(g) {
+				parts = append(parts, code(c.ID)+" "+code(g))
+			}
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // code renders s as an inline Markdown code span. Line breaks become spaces, the backtick fence is
@@ -235,7 +250,7 @@ func CheckSummary(r verify.Result, d policy.Decision) string {
 		if len(l.Suspect) > 0 {
 			b.WriteString("Suspect (" + strings.Join(l.Suspect, ", ") + "):\n")
 			for _, s := range l.Suspect {
-				b.WriteString("- " + s + ": " + reasonText(s) + "\n")
+				b.WriteString("- " + s + ": " + reasonText(l, s) + "\n")
 			}
 			b.WriteString("\n")
 		}
@@ -327,7 +342,7 @@ func Comment(r verify.Result, d policy.Decision) string {
 		for _, l := range suspect {
 			b.WriteString("- " + lockLabel(l) + ": " + strings.Join(l.Suspect, ", ") + "\n")
 			for _, s := range l.Suspect {
-				b.WriteString("  - " + s + ": " + reasonText(s) + "\n")
+				b.WriteString("  - " + s + ": " + reasonText(l, s) + "\n")
 			}
 		}
 	}

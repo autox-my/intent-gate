@@ -182,8 +182,9 @@ func TestRun_HashMismatch(t *testing.T) {
 	in.Changed = modified("internal/report/report.go", "cmd/other/main.go")
 	r := verify.Run(in)
 	wantOutcome(t, r, verify.Findings, 1)
-	if got := suspectOf(t, r, 0); !reflect.DeepEqual(got, []string{"hash-mismatch"}) {
-		t.Errorf("suspect = %v, want [hash-mismatch]", got)
+	// the hand-widened `**` is also repo-wide (S-25), so it adds that reason, after hash-mismatch
+	if got := suspectOf(t, r, 0); !reflect.DeepEqual(got, []string{"hash-mismatch", "repo-wide-footprint"}) {
+		t.Errorf("suspect = %v, want [hash-mismatch repo-wide-footprint]", got)
 	}
 	// every criterion of the lock is still reported, and the footprint check still runs
 	if n := len(r.Locks[0].Criteria); n != 2 {

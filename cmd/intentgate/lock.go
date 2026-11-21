@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/autox-my/intent-gate/internal/audit"
+	"github.com/autox-my/intent-gate/internal/footprint"
 	"github.com/autox-my/intent-gate/internal/ids"
 	"github.com/autox-my/intent-gate/internal/lock"
 	"github.com/autox-my/intent-gate/internal/planreview"
@@ -237,6 +238,20 @@ type pending struct {
 	Committed    *committedIntent // set when the root intent is a committed intent file: RootIntent is its text
 }
 
+// repoWideWarnings is one advisory line per repo-wide glob in the criteria's footprints
+// (footprint-check.md §7, REQ-0047).
+func repoWideWarnings(criteria []lock.Criterion) []string {
+	var out []string
+	for _, c := range criteria {
+		for _, g := range c.Footprint {
+			if footprint.RepoWide(g) {
+				out = append(out, footprint.RepoWideWarning(c.ID, g))
+			}
+		}
+	}
+	return out
+}
+
 // confirmAndWrite is the step the lock paths share (ratification.md §1, steps 5-7): show the
 // criteria, ask for `yes`, then mask, build and write. Nothing is written before the yes.
 func (t *term) confirmAndWrite(p pending) int {
@@ -246,6 +261,9 @@ func (t *term) confirmAndWrite(p pending) int {
 	}
 	fmt.Fprintf(t.out, "Criteria to lock (base %s):\n", p.BaseRef)
 	showCriteria(t.out, p.Criteria)
+	for _, w := range repoWideWarnings(p.Criteria) { // advisory: the lock is still written
+		fmt.Fprintln(t.errOut, w)
+	}
 	// The advisory plan review runs here, before the prompt, within its budget; whatever it
 	// does, the lock goes on (REQ-0020). review_duration_ms starts at the prompt, after it.
 	res := reviewStep(deps, p.Plan, func() (string, error) { return p.RootIntent, nil })
@@ -427,6 +445,9 @@ func runAmend(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 		c := &next.Criteria[ci]
 		c.Footprint = append(c.Footprint, *glob)
 		fmt.Fprintf(t.out, "  add to %s (%s): %s\n", c.ID, c.Text, *glob)
+		if footprint.RepoWide(*glob) {
+			fmt.Fprintln(t.errOut, footprint.RepoWideWarning(c.ID, *glob))
+		}
 		prompt = "Type yes to amend this lock:"
 	} else {
 		fmt.Fprintf(t.out, "  re-ratify as %s: ratified_at was %s; the new ratified_at is the time of confirmation; the criteria stay:\n", by, old.Ratification.RatifiedAt)

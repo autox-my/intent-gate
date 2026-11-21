@@ -212,12 +212,28 @@ func checkLock(in Input, f LockFile) (LockResult, lock.Lock, bool) {
 	if l.BaseRef != in.BaseBranch {
 		lr.Suspect = append(lr.Suspect, ReasonRetargeted)
 	}
+	if repoWide(l) {
+		lr.Suspect = append(lr.Suspect, ReasonRepoWide)
+	}
 	sort.Strings(lr.Suspect)
 	for _, c := range l.Criteria {
 		fp := append([]string{}, c.Footprint...)
 		lr.Criteria = append(lr.Criteria, Criterion{ID: c.ID, Text: c.Text, Footprint: fp})
 	}
 	return lr, l, true
+}
+
+// repoWide reports whether any criterion's footprint holds a repo-wide glob (REQ-0046). The
+// footprint already includes globs added by amendments.
+func repoWide(l lock.Lock) bool {
+	for _, c := range l.Criteria {
+		for _, g := range c.Footprint {
+			if footprint.RepoWide(g) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // inputProblems lists what is wrong with the input as a whole, sorted, once each: two lock file

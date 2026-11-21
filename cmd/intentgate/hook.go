@@ -247,6 +247,9 @@ func pre(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outpu
 	for _, c := range criteria {
 		fmt.Fprintf(&b, "\n- %s: %s (footprint: %s)", c.ID, c.Text, strings.Join(c.Footprint, ", "))
 	}
+	for _, w := range repoWideWarnings(criteria) {
+		b.WriteString("\n" + w)
+	}
 	if scopeLine != "" {
 		b.WriteString("\n" + scopeLine)
 	}
@@ -356,6 +359,9 @@ func post(in claudecode.Input, plan, recPath string, deps Deps) (claudecode.Outp
 		msg += fmt.Sprintf(" (plan review: %s; %d omissions, %d additions, %d weakenings)", pr.Status, *pr.Omissions, *pr.Additions, *pr.Weakenings)
 	}
 	msg += "\n" + scopeLine
+	for _, w := range repoWideWarnings(criteria) {
+		msg += "\n" + w
+	}
 	return claudecode.Output{SystemMessage: msg}, nil
 }
 

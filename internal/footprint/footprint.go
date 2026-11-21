@@ -4,6 +4,7 @@
 package footprint
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -107,5 +108,29 @@ func matches(glob, path string) bool {
 	return err == nil && ok
 }
 
-// RepoWide reports whether glob matches every path (stub: S-25 red commit).
-func RepoWide(glob string) bool { return false }
+// repoWideProbes is the fixed probe set of footprint-check.md §7, one path per line: a glob is
+// repo-wide when it accepts all of them. It spans a top-level file, an upper-case name, a dotfile,
+// nested and hidden directories and a vendored tree, so `**`, `**/*`, `**/**` and `{**,x}` pass
+// while `*`, `**/*.go`, `src/**` and `.*` do not. The repository is never listed (REQ-0040).
+const repoWideProbes = "a\nZ.md\n.hidden\na/b\n.x/y.z\nA/b/c/d.e\nnode_modules/x/y"
+
+// RepoWide reports whether glob is repo-wide (REQ-0046, REQ-0047): a positive glob, not starting
+// with `!`, that matches every probe path. Each glob is judged alone, so a negation elsewhere in a
+// footprint does not make it narrow. It is pure and deterministic.
+func RepoWide(glob string) bool {
+	if strings.HasPrefix(glob, "!") {
+		return false
+	}
+	for _, p := range strings.Split(repoWideProbes, "\n") {
+		if !matches(glob, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// RepoWideWarning is the advisory text for a repo-wide glob in criterion criterionID's footprint
+// (footprint-check.md §7).
+func RepoWideWarning(criterionID, glob string) string {
+	return fmt.Sprintf("IntentGate: %s's footprint %q matches every path, so the footprint check cannot flag anything for it", criterionID, glob)
+}
