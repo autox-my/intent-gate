@@ -8,6 +8,8 @@
 <!-- req-satisfies: REQ-0029 -->
 <!-- req-satisfies: REQ-0030 -->
 <!-- req-satisfies: REQ-0031 -->
+<!-- req-satisfies: REQ-0046 -->
+<!-- req-satisfies: REQ-0047 -->
 
 The footprint check is Phase 0's main product: "these files are outside every criterion's footprint." It lives in `internal/footprint` as a pure function and makes no model call or network request (REQ-0031).
 

@@ -1,0 +1,51 @@
+schema: intentgate.lock/1
+id: 01M7YAN6NBEAEJT66WRM3G0R3A
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 53d5ecb97c78c4a2eaa83b191cc0b1398880760744c5c29a7eee54f2a2c3972a
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: 'REQ-0046: The PR check shall mark an intent lock suspect when one of its footprint globs matches every path.'
+    footprint:
+      - internal/footprint/**
+      - internal/verify/**
+      - internal/report/**
+      - schema/intentgate.verify.v1.json
+      - claims/REQ-0046.yml
+      - docs/design/footprint-check.md
+      - cmd/intentgate/**
+  - id: C2
+    text: 'REQ-0047: The lock command shall warn the ratifier when a footprint glob matches every path.'
+    footprint:
+      - internal/footprint/**
+      - internal/ratify/**
+      - internal/hooks/claudecode/**
+      - cmd/intentgate/**
+      - claims/REQ-0047.yml
+      - docs/design/footprint-check.md
+  - id: C3
+    text: The next Baseline (phase0-5) attests REQ-0046, REQ-0047 and their satisfaction links, and scripts/check.sh verifies it
+    footprint:
+      - .req/satisfied
+      - baselines/**
+      - decisions/**
+      - scripts/check.sh
+      - docs/glossary.md
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-21T05:53:21Z"
+  method: hook
+  review_duration_ms: 75311
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:fcf50b65a09e910ea74a8b303ceb7229cc5e59eab4cfe17d75cada97c8b36524

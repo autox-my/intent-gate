@@ -768,3 +768,17 @@ func TestParseConfig_SkipAuthors(t *testing.T) {
 		}
 	})
 }
+
+// REQ-0046, REQ-0047
+func TestRepoWide(t *testing.T) {
+	for _, g := range []string{"**", "**/*", "**/**", "{**,x}"} {
+		if !RepoWide(g) {
+			t.Errorf("RepoWide(%q) = false, want true", g)
+		}
+	}
+	for _, g := range []string{"*", "**/*.go", "src/**", "!**", ".*", "a/**"} {
+		if RepoWide(g) {
+			t.Errorf("RepoWide(%q) = true, want false", g)
+		}
+	}
+}
