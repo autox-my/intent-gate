@@ -2,6 +2,8 @@
 
 One spec per slice of work, committed before a worker starts (a worktree only sees committed files). See `AGENTS.md`, "How work flows", for what a spec is and isn't.
 
+**A spec is a record of one finished slice, not current documentation.** It was true for its slice; later slices may have changed what it describes (S-21, for example, replaced S-09's source build). For what holds now, read `claims/` (requirements), `docs/adr/` (decisions) and `docs/design/` (how the parts meet the claims).
+
 ## Template
 
 ````markdown

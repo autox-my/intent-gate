@@ -1,6 +1,18 @@
 # Architecture decision records
 
-One decision per file, numbered, never renumbered. A superseded ADR stays, with its status set to `Superseded by NNNN`.
+One decision per file, numbered, never renumbered.
+
+## Status
+
+Every ADR has one `**Status:**` line with one of three values (a note in parentheses may follow):
+
+- **Proposed**: on `main` for discussion, not yet ratified. Code, designs and specs must not depend on it.
+- **Accepted**: ratified by the human (the product owner). Binding: code, designs and specs may depend on it. An agent never sets this; it asks.
+- **Superseded by NNNN**: replaced by a later ADR, which must exist. The file stays, unchanged except for this line.
+
+The index below must agree with each file's status. `scripts/check.sh` checks both (`scripts/adr_status.py`).
+
+## Index
 
 | ADR | Decision | Status |
 |---|---|---|

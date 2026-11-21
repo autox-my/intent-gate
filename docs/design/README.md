@@ -1,18 +1,18 @@
 # IntentGate architecture (Phase 0)
 
-**Status:** draft for review, 2026-11-18
-**Scope:** Phase 0 only (v2 §7, cut by the adoption-first triage). It is advisory, so nothing here blocks a merge. Phase 1 (Jev verification, packets, question library, calibration) is deliberately not designed yet.
+**Status:** draft for review, 2026-11-18; layout and tables refreshed 2026-11-21 (after S-23).
+**Scope:** Phase 0, plus ADR 0006's committed intents (Phase 1, opt-in). It is advisory, so nothing here blocks a merge. The rest of Phase 1 (Jev verification, packets, question library, calibration) is deliberately not designed yet.
 **Vocabulary:** `docs/glossary.md`. **Decisions:** `docs/adr/`.
 
 Each file in this directory is a **design element** in req's sense. It declares the claims it satisfies with satisfaction links, and `req satisfy` reports when a claim's meaning moves against the design. This overview declares none.
 
 | Element | Covers | Claims |
 |---|---|---|
-| [intent-lock.md](intent-lock.md) | Lock format, canonical form, hash, storage, validity | REQ-0006–0012, 0014, 0022 |
+| [intent-lock.md](intent-lock.md) | Lock format, canonical form, hash, storage, validity, committed intents (§6) | REQ-0006–0012, 0014, 0022, 0043, 0044 |
 | [ratification.md](ratification.md) | The three ways a lock is created, confirmation, secret scan | REQ-0002–0005, 0013, 0015 |
 | [plan-review.md](plan-review.md) | Plan vs prompt at ratification time | REQ-0016–0020 |
 | [footprint-check.md](footprint-check.md) | The deterministic footprint check | REQ-0024–0031 |
-| [pr-check.md](pr-check.md) | Lock discovery, lifecycle checks, check run, SARIF, comment | REQ-0021, 0023, 0032–0039 |
+| [pr-check.md](pr-check.md) | Lock discovery, lifecycle checks, check run, SARIF, comment, committed intent acceptance (§7) | REQ-0021, 0023, 0032–0039, 0045 |
 | [core-contracts.md](core-contracts.md) | Determinism, exit codes, JSON output | REQ-0040 |
 | [audit-metrics.md](audit-metrics.md) | Audit events and the footprint-amendment rate | REQ-0041, 0042 |
 
@@ -47,18 +47,22 @@ Three properties of this picture matter:
 One Go module, one binary (`intentgate`), plus an offline Python project. ADR 0001 explains the language choice.
 
 ```text
-cmd/intentgate/            CLI entry: lock, amend, verify, hook, stats
+cmd/intentgate/            CLI entry: init, hook, lock, amend, verify, acceptance, publish, stats
 internal/lock/             PURE  schema, validation, canonical form, hash, validity
 internal/footprint/        PURE  glob matching, implicit footprints, test pairing, findings
+internal/verify/           PURE  the PR check's decision: lock discovery results, lifecycle, outcome
 internal/policy/           PURE  outcome → check conclusion and exit code
 internal/report/           PURE  JSON (intentgate.verify/1), SARIF 2.1.0, check-run markdown
+internal/audit/            PURE  intentgate.audit/1 events (values in, bytes out; no clock)
+internal/codeowners/       PURE  CODEOWNERS parsing and matching (GitHub's rules)
+internal/ids/              ULIDs for lock ids (time and entropy passed in)
 internal/planreview/       provider interface + Jev provider + "unavailable" fallback
-internal/ratify/           confirmation UI, secret scan, local root-intent store
-internal/hooks/claudecode/ adapter: Claude Code PreToolUse/PostToolUse on plan approval
-internal/gitx/             adapter: changed files, commit times, via the git CLI
-internal/forge/github/     adapter: check run, comment, PR metadata (Checks/Issues API)
-action/                    composite GitHub Action that runs `intentgate verify`
-schema/                    intentgate.lock.v1.json, intentgate.verify.v1.json (public contracts)
+internal/ratify/           drafting from a plan, secret scan and masking, local root-intent store
+internal/hooks/claudecode/ adapter: Claude Code hooks on plan approval and the ratify card
+internal/gitx/             adapter: changed files, blobs, commit times, merges, via the git CLI
+internal/forge/github/     adapter: issues, check run, comment, commit PRs and reviews (REST API)
+action/                    composite GitHub Action: fetch (or build) intentgate, verify, acceptance, publish
+schema/                    intentgate.lock.v1, .verify.v1, .audit.v1, .acceptance.v1 JSON schemas (public contracts)
 eval/                      Python (uv): Phase 1 labeling and calibration harness, never shipped
 ```
 
@@ -110,6 +114,7 @@ flowchart LR
 | Ratification | Method recorded (`hook`, `cli-confirm`, `issue`), nothing enforced in Phase 0 | ADR 0003 |
 | req | Used for this project's requirements now; product integration later through req's CLI and JSON, never as a library | ADR 0004 |
 | Distribution | CLI and a composite GitHub Action in Phase 0; GitHub App in Phase 1.5 | ADR 0005 |
+| Committed intent | Opt-in `intents/<slug>.md` as a lock's root intent; the PR check reports code-owner acceptance | ADR 0006 |
 | Exit codes | req's contract: 0 settled, 1 finding, 3 UNVERIFIABLE, 2 usage | core-contracts.md |
 | Evaluation time | The head commit's committer time, never the wall clock | core-contracts.md |
 

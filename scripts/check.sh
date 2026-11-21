@@ -39,6 +39,11 @@ if need python3; then
   step "process map" sh -c 'python3 -I scripts/sdlc_map_test.py && python3 -I scripts/sdlc-map.py --check'
 fi
 
+# ADR statuses (docs/adr/README.md): Proposed, Accepted or Superseded by NNNN, and the index agrees.
+if need python3; then
+  step "adr status" sh -c 'python3 -I scripts/adr_status_test.py && python3 -I scripts/adr_status.py'
+fi
+
 if need req; then
   step "req canon" req canon --fail-on-flag
   step "req satisfy" req satisfy

@@ -52,7 +52,7 @@ Adapted from req's own process (`docs/process/req-sdlc-study.md`).
 | Test | *Proof* a claim holds | `*_test.go`, linked from claims via `tests:` | Written first, committed red |
 | Code | the implementation | `cmd/`, `internal/` | Only after its test is red |
 
-A spec adds no new requirements and restates none. It points at claims and design sections and adds only what a worker needs for one slice: the allowed paths, choices fixed for the slice, the red-first tests and the verify command. **A spec is this project's intent lock, written by hand:** its criteria are claim ids, its footprint is the allowed paths. Once IntentGate's footprint check exists, it runs on our own branches against the spec.
+Specs of merged slices are history, not current documentation: for what holds now, read `claims/`, `docs/adr/` (Accepted ADRs bind; Proposed ones don't) and `docs/design/`. A spec adds no new requirements and restates none. It points at claims and design sections and adds only what a worker needs for one slice: the allowed paths, choices fixed for the slice, the red-first tests and the verify command. **A spec is this project's intent lock, written by hand:** its criteria are claim ids, its footprint is the allowed paths. Once IntentGate's footprint check exists, it runs on our own branches against the spec.
 
 ### Roles
 
