@@ -73,3 +73,13 @@ intentgate amend 01JD8Z6Q… --criterion C2 --add "internal/gitx/**"
 ```
 
 `nearest_criterion` is the criterion whose footprint shares the longest directory prefix with the path. It's a suggestion for the amendment command, not a judgment.
+
+## 7. Repo-wide footprints (REQ-0046, REQ-0047)
+
+A criterion whose footprint matches every path makes the footprint check vacuous: no change can fall outside it. The ratifier may not notice (a ratify card shows a plan's path and hash, and the plan review looks at omissions and additions, not footprint width), so IntentGate says so, deterministically, at both ends. It never blocks.
+
+- **Definition.** A glob is **repo-wide** when it is a positive glob (not starting with `!`) and `doublestar.Match` accepts every path of this fixed probe set: `a`, `Z.md`, `.hidden`, `a/b`, `.x/y.z`, `A/b/c/d.e`, `node_modules/x/y`. That catches `**`, `**/*`, `**/**`, `{**,x}` and the like without listing the repository, so `verify` stays deterministic (REQ-0040). `*` (top-level only), `**/*.go` and `src/**` are not repo-wide. Each positive glob is judged on its own: a negation elsewhere in the footprint (`**` with `!vendor/**`) does not make it narrow.
+- **Where it lives.** `footprint.RepoWide(glob string) bool`, pure, in `internal/footprint`, with the probe set as a package constant. Both ends call it.
+- **PR check (REQ-0046).** A lock with a repo-wide glob in any criterion's footprint, counting globs added by amendments, gets the suspect reason `repo-wide-footprint` (pr-check.md §3). As with every suspect reason, the lock is still checked, the outcome is `findings` (exit 1), and the conclusion is `neutral` with one comment, which names the criterion and the glob.
+- **Lock command (REQ-0047).** When drafting a lock, through the plan-approval hook, the ratify card, `lock --from-plan` or `lock --issue`, and when `amend --add` adds a glob, each repo-wide glob produces one warning naming the criterion and the glob: `IntentGate: C2's footprint "**" matches every path, so the footprint check cannot flag anything for it`. The CLI prints it before the confirmation prompt. The hook adds it to its message. The lock is still written; the warning is advisory.
+- **Not here.** A list of "governance paths" (`docs/adr/**`, `claims/**`, workflows) that warns when a footprint touches them. CODEOWNERS and branch protection guard those, and they differ per repository. If teams ask, it can become a setting in `.intentgate.yml`.
