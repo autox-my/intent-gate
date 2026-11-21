@@ -24,6 +24,8 @@ Both ratified by the human on 2026-11-21 and **new in this slice**: the orchestr
 - `internal/verify`: a new constant `ReasonRepoWide = "repo-wide-footprint"`, appended after the existing reasons in the same order rules; `schema/intentgate.verify.v1.json` adds it to the suspect enum. The comment and summary name the criterion and the glob (in `internal/report`).
 - Existing golden or known-answer outputs change only where a fixture now has a repo-wide glob; if any existing fixture uses `**` as a footprint, keep the fixture and update its expected output to include the new reason (say which in the report). Don't change a fixture to avoid the reason.
 - `internal/footprint` stays PURE and keeps `TestNoModelCall_Imports` passing unchanged (doublestar is already allowed).
+- Review 1 amendments (binding):
+  - `TestComment_RepoWideNamesCriterionAndGlob` (internal/report): for a lock suspect with `repo-wide-footprint` whose C2 footprint holds `**`, both `report.Comment` and `report.CheckSummary` contain `C2` and `**` (and a narrow C1 glob is not named as repo-wide). REQ-0046 also links this test.
 
 ## Tests first (committed red)
 
