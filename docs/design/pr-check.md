@@ -10,6 +10,7 @@
 <!-- req-satisfies: REQ-0037 -->
 <!-- req-satisfies: REQ-0038 -->
 <!-- req-satisfies: REQ-0039 -->
+<!-- req-satisfies: REQ-0045 -->
 
 In Phase 0 the PR check is a composite GitHub Action (ADR 0005) that runs `intentgate verify` and publishes the result. The decision logic is the pure `verify` core; the Action is only an adapter.
 

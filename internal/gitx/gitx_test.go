@@ -657,3 +657,36 @@ func TestGitx_BlobAt(t *testing.T) {
 		t.Error("an unknown object gave no error")
 	}
 }
+
+func TestGitx_LastCommit(t *testing.T) {
+	isolate(t)
+	dir := repoOn(t, "main")
+	commit := func(name, content, msg string) string {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, dir, "add", name)
+		git(t, dir, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", msg)
+		return git(t, dir, "rev-parse", "HEAD")
+	}
+	a1 := commit("a.md", "one\n", "a1")
+	commit("b.md", "b\n", "b")
+	a2 := commit("a.md", "two\n", "a2")
+	commit("c.md", "c\n", "c")
+
+	if got, err := LastCommit(dir, "main", "a.md"); err != nil || got != a2 {
+		t.Errorf("LastCommit(main, a.md) = %q, %v; want %s", got, err, a2)
+	}
+	if got, err := LastCommit(dir, a1, "a.md"); err != nil || got != a1 {
+		t.Errorf("LastCommit(%s, a.md) = %q, %v; want %s", a1, got, err, a1)
+	}
+	if got, err := LastCommit(dir, "main", "missing.md"); err != nil || got != "" {
+		t.Errorf("LastCommit for an untouched path = %q, %v; want empty", got, err)
+	}
+	if _, err := LastCommit(dir, "no-such-branch", "a.md"); err == nil {
+		t.Error("a bad revision must be an error")
+	}
+	if _, err := LastCommit(dir, "-x", "a.md"); err == nil {
+		t.Error("an option as a revision must be an error")
+	}
+}

@@ -114,6 +114,9 @@ links:
 - element: docs/design/pr-check.md
   claim_id: REQ-0039
   statement: The PR check shall conclude its check run as success or neutral in advisory mode.
+- element: docs/design/pr-check.md
+  claim_id: REQ-0045
+  statement: The PR check shall report whether each committed intent file was approved by a code owner.
 - element: docs/design/ratification.md
   claim_id: REQ-0002
   statement: The plan-approval hook shall create an intent lock when a human approves an agent plan.

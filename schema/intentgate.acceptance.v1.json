@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intentgate.dev/schema/intentgate.acceptance.v1.json",
+  "title": "IntentGate committed intent acceptance",
+  "description": "`acceptance.json` in the out dir of the PR check, schema intentgate.acceptance/1, written by `intentgate acceptance` (pr-check.md §7, REQ-0045). For each lock of the pull request whose root intent is a committed intent: was that intent accepted, that is, did it reach the base branch through a pull request approved by a code owner? A report only: it never changes verify.json, the exit code or the conclusion. Intents are sorted by lock_id, and every key is always present.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "intents"],
+  "properties": {
+    "schema": { "const": "intentgate.acceptance/1" },
+    "intents": {
+      "description": "One entry per lock with source committed-intent that validates; empty when there is none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lock_id", "path", "blob", "status", "reason", "pr"],
+        "properties": {
+          "lock_id": { "description": "The lock's id.", "type": "string" },
+          "path": { "description": "The committed intent file, intents/<slug>.md.", "type": "string" },
+          "blob": { "description": "The git blob id the lock records for it.", "type": "string" },
+          "status": {
+            "description": "accepted: an approver of the merged pull request is a code owner of the file. not-accepted: this version is not on the base branch, it reached it without a pull request, or its approvers are none of its code owners. unknown: it cannot be decided (no code owner, owned by a team or an email, or the API could not be read).",
+            "enum": ["accepted", "not-accepted", "unknown"]
+          },
+          "reason": { "description": "Why, in one line.", "type": "string" },
+          "pr": { "description": "The merged pull request that brought the intent to the base branch; 0 when there is none or it is not known.", "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

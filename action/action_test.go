@@ -609,3 +609,105 @@ func TestAction_Source(t *testing.T) {
 		}
 	})
 }
+
+// REQ-0045 (pr-check.md §7)
+func TestAction_Acceptance(t *testing.T) {
+	a := load(t)
+	index := map[string]int{}
+	for i, s := range a.Runs.Steps {
+		index[s.ID] = i
+	}
+	acc := stepByID(t, a, "acceptance")
+
+	t.Run("it runs after verify and before the summary and publish steps", func(t *testing.T) {
+		if !(index["verify"] < index["acceptance"] && index["acceptance"] < index["summary"] && index["acceptance"] < index["publish"]) {
+			t.Errorf("step order: verify %d, acceptance %d, summary %d, publish %d", index["verify"], index["acceptance"], index["summary"], index["publish"])
+		}
+	})
+
+	t.Run("it is guarded like the others and runs only when verify succeeded", func(t *testing.T) {
+		if !strings.HasPrefix(acc.If, "github.event_name == 'pull_request'") || !strings.Contains(acc.If, "steps.verify.outcome == 'success'") || strings.Contains(acc.If, "pull_request_target") {
+			t.Errorf("if = %q", acc.If)
+		}
+	})
+
+	t.Run("it continues on error and a failure is only a warning", func(t *testing.T) {
+		if acc.ContinueOnError != true {
+			t.Errorf("continue-on-error = %v, want true", acc.ContinueOnError)
+		}
+		if !strings.Contains(acc.Run, "::warning") || acc.Shell != "bash" {
+			t.Errorf("run = %q, shell = %q", acc.Run, acc.Shell)
+		}
+	})
+
+	t.Run("values arrive only through env: and no expression is in the script", func(t *testing.T) {
+		want := map[string]string{
+			"GITHUB_TOKEN": "${{ inputs.token }}",
+			"BASE_SHA":     "${{ github.event.pull_request.base.sha }}",
+			"HEAD_SHA":     "${{ github.event.pull_request.head.sha }}",
+		}
+		for k, v := range want {
+			if acc.Env[k] != v {
+				t.Errorf("env %s = %q, want %q", k, acc.Env[k], v)
+			}
+		}
+		if strings.Contains(acc.Run, "${{") {
+			t.Errorf("run contains an expression: %q", acc.Run)
+		}
+		for _, frag := range []string{"acceptance", `--out-dir "$RUNNER_TEMP/intentgate"`, `--repo "$GITHUB_REPOSITORY"`, `--base "$BASE_SHA"`, `--head "$HEAD_SHA"`} {
+			if !strings.Contains(acc.Run, frag) {
+				t.Errorf("run lacks %s", frag)
+			}
+		}
+	})
+
+	t.Run("a failing intentgate acceptance warns and the script still exits 0", func(t *testing.T) {
+		if _, err := exec.LookPath("bash"); err != nil {
+			t.Skip("bash not on PATH")
+		}
+		tmp := t.TempDir()
+		bin := filepath.Join(tmp, "intentgate-bin")
+		if err := os.MkdirAll(bin, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		fake := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$RUNNER_TEMP/args-acceptance\"\nexit \"$FAKE_EXIT\"\n"
+		if err := os.WriteFile(filepath.Join(bin, "intentgate"), []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, code := range []string{"0", "2", "3"} {
+			cmd := exec.Command("bash", "-eo", "pipefail", "-c", acc.Run)
+			cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "RUNNER_TEMP=" + tmp, "GITHUB_REPOSITORY=octo/repo", "FAKE_EXIT=" + code}
+			for k, v := range acc.Env {
+				if strings.Contains(v, "${{") {
+					v = "value-of-" + k
+				}
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("exit %s: the script failed: %v\n%s", code, err, out)
+			}
+			if warned := strings.Contains(string(out), "::warning"); warned != (code != "0") {
+				t.Errorf("exit %s: warning = %v, output %q", code, warned, out)
+			}
+			args, _ := os.ReadFile(filepath.Join(tmp, "args-acceptance"))
+			want := "acceptance\n--out-dir\n" + tmp + "/intentgate\n--repo\nocto/repo\n--base\nvalue-of-BASE_SHA\n--head\nvalue-of-HEAD_SHA\n"
+			if string(args) != want {
+				t.Errorf("argv = %q, want %q", args, want)
+			}
+		}
+	})
+
+	t.Run("acceptance.json rides in the intentgate artifact: the whole out dir is uploaded", func(t *testing.T) {
+		for _, s := range a.Runs.Steps {
+			if strings.HasPrefix(s.Uses, "actions/upload-artifact@") {
+				if p, _ := s.With["path"].(string); !strings.HasSuffix(p, "/intentgate") || strings.Contains(p, "acceptance") {
+					t.Errorf("upload-artifact path = %q, want the out dir", p)
+				}
+				if index["acceptance"] > index[s.ID] {
+					t.Errorf("acceptance runs after the artifact upload")
+				}
+			}
+		}
+	})
+}
