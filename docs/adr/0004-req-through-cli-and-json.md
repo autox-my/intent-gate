@@ -1,6 +1,6 @@
 # ADR 0004: Integrate with req through its CLI and JSON only
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-21)
 
 ## Context
 

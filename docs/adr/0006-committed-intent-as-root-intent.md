@@ -1,6 +1,6 @@
 # ADR 0006: A committed, owner-approved `intent.md` may be a lock's root intent (Phase 1, opt-in)
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-21)
 
 ## Context
 

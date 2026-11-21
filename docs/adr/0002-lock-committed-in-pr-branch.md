@@ -1,6 +1,6 @@
 # ADR 0002: Commit the lock in the PR branch; keep the root intent local
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-21)
 
 ## Context
 

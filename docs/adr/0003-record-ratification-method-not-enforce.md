@@ -1,6 +1,6 @@
 # ADR 0003: Record how a lock was ratified; enforce nothing in Phase 0
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-21)
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR 0005: Phase 0 ships a CLI and a GitHub Action; the App comes in Phase 1.5
 
-**Status:** Proposed
+**Status:** Accepted (2026-11-21)
 
 ## Context
 

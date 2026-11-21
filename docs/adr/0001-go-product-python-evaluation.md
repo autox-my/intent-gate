@@ -1,6 +1,6 @@
 # ADR 0001: Go for the product, Python for offline evaluation
 
-**Status:** Proposed (language agreed 2026-11-18)
+**Status:** Accepted (2026-11-21; language agreed 2026-11-18)
 
 ## Context
 
