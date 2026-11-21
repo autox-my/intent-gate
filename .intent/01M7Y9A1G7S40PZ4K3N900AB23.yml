@@ -1,0 +1,26 @@
+schema: intentgate.lock/1
+id: 01M7Y9A1G7S40PZ4K3N900AB23
+revision: 1
+base_ref: main
+root_intent:
+  sha256: e422620fc33fbbc8ce4607fa5c6595b5311828582e3dba584cbdd45a22ff379f
+  source: claude-code-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: A test reads the PURE package list from docs/design/README.md and fails if any of them imports an I/O, network, randomness or adapter package or reads the clock, with canaries proving it catches violations
+    footprint:
+      - internal/arch/**
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-21T05:29:47Z"
+  method: hook
+  review_duration_ms: 27572
+  drafted_by: claude-code/claude-opus-5-5
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:3e1f0e0fc76a7ebdb79aaed8d712c17277f24a7402980fcf18e63fecde6bae93
