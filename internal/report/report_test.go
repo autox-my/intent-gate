@@ -244,3 +244,32 @@ func TestComment_ListsSuspectAndProblems(t *testing.T) {
 		t.Errorf("text lacks the document's content:\n%s", txt)
 	}
 }
+
+// REQ-0046 (review 1 of S-25): the comment and the check summary name each repo-wide criterion
+// and glob, and only those.
+func TestComment_RepoWideNamesCriterionAndGlob(t *testing.T) {
+	r := verify.Result{
+		Outcome: verify.Findings, ExitCode: 1,
+		Locks: []verify.LockResult{{
+			Path: ".intent/" + lockID + ".yml", ID: lockID, Revision: 1,
+			Suspect: []string{verify.ReasonRepoWide}, Problems: []string{},
+			Criteria: []verify.Criterion{
+				{ID: "C1", Text: "Narrow.", Footprint: []string{"internal/narrowonly/**"}},
+				{ID: "C2", Text: "Wide.", Footprint: []string{"**"}},
+			},
+		}},
+		Findings: []footprint.Finding{},
+	}
+	d := policy.Decide(r)
+	for name, out := range map[string]string{"comment": report.Comment(r, d), "check summary": report.CheckSummary(r, d)} {
+		if !strings.Contains(out, "matches every path") {
+			t.Errorf("%s lacks the repo-wide reason:\n%s", name, out)
+		}
+		if !strings.Contains(out, "`C2` `**`") {
+			t.Errorf("%s does not name C2 and its glob ** as repo-wide:\n%s", name, out)
+		}
+		if strings.Contains(out, "`C1` `internal/narrowonly/**`") {
+			t.Errorf("%s names the narrow C1 glob as repo-wide:\n%s", name, out)
+		}
+	}
+}

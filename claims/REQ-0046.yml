@@ -11,3 +11,4 @@ rationale:
 relations: []
 tests:
   - "github.com/autox-my/intent-gate/internal/verify::TestVerify_RepoWideFootprint"
+  - "github.com/autox-my/intent-gate/internal/report::TestComment_RepoWideNamesCriterionAndGlob"
