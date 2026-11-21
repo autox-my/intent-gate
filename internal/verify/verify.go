@@ -51,6 +51,7 @@ const (
 	ReasonHashMismatch = "hash-mismatch"
 	ReasonModifiesLock = "modifies-existing-lock"
 	ReasonRetargeted   = "retargeted"
+	ReasonRepoWide     = "repo-wide-footprint"
 )
 
 // Criterion is one criterion of a usable lock, as shown in the report.

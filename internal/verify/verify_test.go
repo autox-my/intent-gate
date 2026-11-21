@@ -1,6 +1,7 @@
 package verify_test
 
 import (
+	"bytes"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/autox-my/intent-gate/internal/footprint"
 	"github.com/autox-my/intent-gate/internal/lock"
+	"github.com/autox-my/intent-gate/internal/report"
 	"github.com/autox-my/intent-gate/internal/verify"
 )
 
@@ -432,5 +434,63 @@ func TestRun_DoesNotMutateInput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(in.Changed, before) || in.LockFiles[0].Path != paths[0] || in.LockFiles[1].Path != paths[1] {
 		t.Error("Run reordered its input")
+	}
+}
+
+// REQ-0046
+func TestVerify_RepoWideFootprint(t *testing.T) {
+	spec := func(c2 ...string) lockSpec {
+		return lockSpec{criteria: []lock.Criterion{
+			{ID: "C1", Text: "Findings are published as SARIF.", Footprint: []string{"internal/report/**"}},
+			{ID: "C2", Text: "Policy maps outcomes to conclusions.", Footprint: c2},
+		}}
+	}
+	amended := spec("internal/policy/**", "**")
+	amended.tamper = func(l *lock.Lock) {
+		l.Revision = 2
+		l.Amendments = []lock.Amendment{{
+			Revision: 2, Kind: lock.KindAddGlob, Criterion: "C2", Glob: "**",
+			By: "git:dev@example.com", At: "2026-11-18T10:00:00Z", Method: "cli-confirm",
+		}}
+		h, err := lock.Hash(*l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.Hash = h
+	}
+	tests := []struct {
+		name string
+		spec lockSpec
+		want bool
+	}{
+		{"** in C2", spec("**"), true},
+		{"** added by an add-glob amendment", amended, true},
+		{"** with a negation", spec("**", "!vendor/**"), true},
+		{"src/** is not repo-wide", spec("src/**"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base(t)
+			in.LockFiles = []verify.LockFile{added(t, tc.spec)}
+			r := verify.Run(in)
+			got := false
+			for _, s := range suspectOf(t, r, 0) {
+				if s == verify.ReasonRepoWide {
+					got = true
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("suspect = %v, want repo-wide-footprint present = %v", r.Locks[0].Suspect, tc.want)
+			}
+			if tc.want {
+				wantOutcome(t, r, verify.Findings, 1)
+				if verify.ReasonRepoWide != "repo-wide-footprint" {
+					t.Errorf("ReasonRepoWide = %q", verify.ReasonRepoWide)
+				}
+			}
+			if a, b := report.JSON(verify.Run(in)), report.JSON(verify.Run(in)); !bytes.Equal(a, b) {
+				t.Errorf("two runs differ:\n%s\n%s", a, b)
+			}
+		})
 	}
 }

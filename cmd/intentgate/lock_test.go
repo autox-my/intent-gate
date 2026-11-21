@@ -777,3 +777,83 @@ func TestAmend_RefusesTamperedLock(t *testing.T) {
 		}
 	}
 }
+
+const repoWidePlanText = "# Plan\n\nAdd SARIF output.\n\n```intentgate\ncriteria:\n" +
+	"  - text: \"Findings are published as SARIF\"\n    footprint: [\"internal/report/**\"]\n" +
+	"  - text: \"Everything is allowed\"\n    footprint: [\"**\"]\n```\n"
+
+const repoWideWarning = `IntentGate: C2's footprint "**" matches every path, so the footprint check cannot flag anything for it`
+
+// doMerged is do with stdout and stderr in one buffer, so the order of the output can be checked.
+func (e *env) doMerged(args []string, lines ...string) (code int, all string) {
+	e.t.Helper()
+	var buf bytes.Buffer
+	e.deps.Stderr = &buf
+	code = Run(args, &scriptedStdin{lines: lines, e: e, delay: confirmDelay}, &buf, e.deps)
+	return code, buf.String()
+}
+
+// REQ-0047
+func TestLock_RepoWideWarning(t *testing.T) {
+	t.Run("lock --from-plan warns on stderr before the prompt and still writes the lock", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		e.terminals(true, true)
+		plan := e.write("plan.md", repoWidePlanText)
+		prompt := e.write("prompt.txt", rootIntent)
+		args := []string{"lock", "--from-plan", plan, "--prompt", prompt}
+
+		code, stdout, stderr := e.do(args, "yes\n")
+		if code != 0 {
+			t.Fatalf("exit %d, stderr %q", code, stderr)
+		}
+		if !strings.Contains(stderr, repoWideWarning+"\n") || strings.Count(stderr, "matches every path") != 1 {
+			t.Errorf("stderr = %q, want exactly the warning %q", stderr, repoWideWarning)
+		}
+		if strings.Contains(stdout, "matches every path") {
+			t.Errorf("the warning is on stdout: %q", stdout)
+		}
+		l, _ := e.onlyLock()
+		if len(l.Criteria) != 2 || l.Criteria[1].Footprint[0] != "**" {
+			t.Errorf("lock criteria = %+v, want the ** footprint kept", l.Criteria)
+		}
+
+		e2 := newEnv(t, "dev@example.com")
+		e2.terminals(true, true)
+		args2 := []string{"lock", "--from-plan", e2.write("plan.md", repoWidePlanText), "--prompt", e2.write("prompt.txt", rootIntent)}
+		_, all := e2.doMerged(args2, "yes\n")
+		w, p := strings.Index(all, repoWideWarning), strings.Index(all, wantPrompt)
+		if w < 0 || p < 0 || w > p {
+			t.Errorf("the warning (at %d) must come before the prompt (at %d):\n%s", w, p, all)
+		}
+	})
+	t.Run("a narrow footprint prints no warning", func(t *testing.T) {
+		e := newEnv(t, "dev@example.com")
+		e.terminals(true, true)
+		plan := e.write("plan.md", planText)
+		prompt := e.write("prompt.txt", rootIntent)
+		code, stdout, stderr := e.do([]string{"lock", "--from-plan", plan, "--prompt", prompt}, "yes\n")
+		if code != 0 || strings.Contains(stdout+stderr, "matches every path") {
+			t.Errorf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+		}
+	})
+	t.Run("amend --add ** warns before the prompt; a narrow glob does not", func(t *testing.T) {
+		e, id, path := lockedEnv(t)
+		code, all := e.doMerged([]string{"amend", id, "--criterion", "C2", "--add", "**"}, "yes\n")
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, all)
+		}
+		w, p := strings.Index(all, repoWideWarning), strings.Index(all, "Type yes to amend this lock:")
+		if w < 0 || p < 0 || w > p {
+			t.Errorf("the warning (at %d) must come before the prompt (at %d):\n%s", w, p, all)
+		}
+		if l := e.readLock(path); l.Revision != 2 {
+			t.Errorf("revision = %d, want 2: the amendment is still written", l.Revision)
+		}
+
+		e, id, _ = lockedEnv(t)
+		code, all = e.doMerged([]string{"amend", id, "--criterion", "C2", "--add", "docs/api/**"}, "yes\n")
+		if code != 0 || strings.Contains(all, "matches every path") {
+			t.Errorf("exit %d, output %q", code, all)
+		}
+	})
+}

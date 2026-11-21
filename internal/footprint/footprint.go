@@ -106,3 +106,6 @@ func matches(glob, path string) bool {
 	ok, err := doublestar.Match(glob, path)
 	return err == nil && ok
 }
+
+// RepoWide reports whether glob matches every path (stub: S-25 red commit).
+func RepoWide(glob string) bool { return false }

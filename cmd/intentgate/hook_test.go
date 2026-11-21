@@ -781,3 +781,33 @@ func TestHook_ScopeLine(t *testing.T) {
 		})
 	}
 }
+
+// REQ-0047
+func TestHook_RepoWideWarning(t *testing.T) {
+	e := newEnv(t, "dev@example.com")
+	code, obj := e.run("pre", e.input("PreToolUse", repoWidePlanText, "ExitPlanMode"))
+	if code != 0 {
+		t.Fatalf("pre exit = %d", code)
+	}
+	if !strings.Contains(obj["systemMessage"], repoWideWarning) {
+		t.Errorf("pre systemMessage %q lacks the warning", obj["systemMessage"])
+	}
+	e.now = t0.Add(time.Second)
+	code, obj = e.run("post", e.input("PostToolUse", repoWidePlanText, "ExitPlanMode"))
+	if code != 0 {
+		t.Fatalf("post exit = %d", code)
+	}
+	if msg := obj["systemMessage"]; !strings.Contains(msg, repoWideWarning) || !strings.Contains(msg, "intent lock written") {
+		t.Errorf("post systemMessage = %q, want the lock written and the warning %q", msg, repoWideWarning)
+	}
+	if files := e.locks(); len(files) != 1 {
+		t.Errorf("locks = %v, want one: the lock is still written", files)
+	}
+
+	e = newEnv(t, "dev@example.com")
+	e.pre()
+	e.now = t0.Add(time.Second)
+	if _, obj = e.run("post", e.input("PostToolUse", planText, "ExitPlanMode")); strings.Contains(obj["systemMessage"], "matches every path") {
+		t.Errorf("a narrow plan got a warning: %q", obj["systemMessage"])
+	}
+}
