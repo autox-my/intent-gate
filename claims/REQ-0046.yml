@@ -1,0 +1,14 @@
+# Ratified by the human on 2026-11-21 (footprint width, review of the 2026-11-21 research, gap 3).
+schema: req.claim/4
+claim_id: REQ-0046
+statement: "The PR check shall mark an intent lock suspect when one of its footprint globs matches every path."
+applicability: []
+rationale:
+  source: "docs/design/footprint-check.md#7-repo-wide-footprints"
+  date: 2026-11-21
+  rejected_alternatives: ["a built-in list of governance paths (docs/adr/**, claims/**, workflows): CODEOWNERS and branch protection guard those, and they differ per repo"]
+  assumptions: []
+relations: []
+tests:
+  - "github.com/autox-my/intent-gate/internal/verify::TestVerify_RepoWideFootprint"
+  - "github.com/autox-my/intent-gate/internal/report::TestComment_RepoWideNamesCriterionAndGlob"

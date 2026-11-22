@@ -95,7 +95,7 @@ stages:
     title: "Merge"
     question: "Ship"
     detail: "CI · req check · Baseline · human merge · v* tag release"
-    paths: [".github/workflows/check.yml", ".github/workflows/release.yml", "baselines/phase0-4.json"]
+    paths: [".github/workflows/check.yml", ".github/workflows/release.yml", "baselines/phase0-5.json"]
 
 maintain: "audit events · intentgate stats · handoffs feed the next intent (production signals: not yet)"
 

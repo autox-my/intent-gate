@@ -33,6 +33,12 @@ links:
 - element: docs/design/footprint-check.md
   claim_id: REQ-0031
   statement: The footprint check shall not call a model.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0046
+  statement: The PR check shall mark an intent lock suspect when one of its footprint globs matches every path.
+- element: docs/design/footprint-check.md
+  claim_id: REQ-0047
+  statement: The lock command shall warn the ratifier when a footprint glob matches every path.
 - element: docs/design/intent-lock.md
   claim_id: REQ-0006
   statement: The intent lock shall store the root intent verbatim.

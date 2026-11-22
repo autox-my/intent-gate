@@ -33,7 +33,7 @@
           "revision": { "type": "integer", "minimum": 0 },
           "suspect": {
             "type": "array",
-            "items": { "enum": ["expired", "hash-mismatch", "modifies-existing-lock", "retargeted"] }
+            "items": { "enum": ["expired", "hash-mismatch", "modifies-existing-lock", "retargeted", "repo-wide-footprint"] }
           },
           "problems": {
             "description": "Why the lock is unverifiable; when not empty the lock contributes no criteria.",
