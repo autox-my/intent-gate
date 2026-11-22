@@ -60,7 +60,9 @@ What Antigravity's docs say (read 2026-11-22; check them again, they are new):
   - The stdin payload is camelCase: `conversationId`, `workspacePaths`, `transcriptPath`, `toolCall {name, args}`.
   - A `PreToolUse` hook can answer `allow`, `ask` or `deny`. `PostToolUse` returns `{}`.
 - **Questions:** it has an `ask_question` tool (multiple choice: `questions[].question`, `options`, `is_multi_select`).
-- **Plans:** approval of an implementation plan ("Proceed") is **not** a documented hook event, and no payload field carries the plan or the user's decision.
+- **Plans:** approval of an implementation plan ("Proceed") is **not** a documented hook event or tool call, and no payload field carries the plan or the user's decision.
+- **`PostToolUse` carries no tool result:** its fields are `toolCall {name, args}`, `stepIdx`, `error` and the common fields. The option the user picked in `ask_question` is therefore not in the hook payload. It may be in the transcript at `transcriptPath`, which is undocumented.
+- **In T3 Code with an Antigravity thread,** Claude Code's hooks don't run, and nothing in the repo is in `.agents/hooks.json`. A ratify card shown there writes **no lock**. (T3's `antigravity` provider also showed as disabled on 2026-11-21; it must be enabled in T3's settings.)
 
 So, in order of preference:
 1. **Fallback that works everywhere:** the human runs `scripts/lock-slice.sh S-NN` in a terminal and types `yes`. The orchestrator then commits the staged lock. The lock's `method` is `cli-confirm`, not `hook`; that's expected.
@@ -68,17 +70,29 @@ So, in order of preference:
 3. **An Antigravity adapter is a candidate slice**, and the human wants to see how IntentGate behaves in this harness:
    - `intentgate hook antigravity pre|post` would parse Antigravity's payload and match the `ask_question` card the same way `ratify-question` does today.
    - `intentgate init --agent antigravity` would write `.agents/hooks.json`.
-   - **Open question:** whether `PostToolUse` (or the transcript at `transcriptPath`) shows the user's selected option. Check it by hand with a logging hook before writing the spec, as was done for Claude Code in ratification.md §2.
+   - **Open question:** whether the transcript at `transcriptPath` records the user's selected option after `ask_question`. The `PostToolUse` payload doesn't. Check it by hand first: a `PostToolUse` hook on `ask_question` that copies its stdin and the transcript to a temp file. This is the same check S-18 did for Claude Code.
+   - **Later, beyond Claude Code:** `PreToolUse` can answer `ask` or `deny` before `write_to_file` or `run_command`. That could warn *before* an edit outside the lock's footprint, not only at PR time. That is a Phase 1 design question, and must stay advisory (`ask`, never `deny`) while Phase 0 rules hold.
 
-## Roles (AGENTS.md table; update it if the human settles on Neon)
+## Roles: Antigravity's Orchestrator mode (the human's choice, 2026-11-22)
+
+The human runs Antigravity's built-in **Orchestrator**: **Gemini 4 Neon as planner**, **Gemini 4 Hydrogen as executor**. Per the docs, the Orchestrator "keeps a single agent in your conversation and hands off between planning and execution within each turn". The planner explores and writes the plan; the executor "searches, edits files, runs builds and tests".
 
 | Role | Who |
 |---|---|
-| Orchestrator | was Claude Opus 5.5; now trying Gemini 4 Neon |
-| Worker | `claudeAgent` / `claude-sonnet-5-5` (through T3 `delegate_task`, worktree isolation) |
-| Reviewer | `opencode` / `opencode-go/gemini-4-argon`; fallback `opencode-go/deepseek-v4.1-flash`. It must be a different family from the worker (Claude), not from the orchestrator. |
+| Orchestrator (planner) | Gemini 4 Neon |
+| Worker (executor) | Gemini 4 Hydrogen, in the same conversation; not a separate T3 `delegate_task` child |
+| Reviewer | must be a **different family from the worker**, so **not Gemini**: `opencode` / `opencode-go/deepseek-v4.1-flash` (or GLM, or a Claude model). Gemini 4 Argon no longer qualifies while Hydrogen is the worker. |
+| Human | ratifies claims, locks, signs, merges |
 
-If you work directly in Antigravity without T3, workers would be Gemini models. The reviewer must then be **non-Gemini** (for example DeepSeek through `opencode`).
+Update the AGENTS.md roles table in the first slice if this setup is kept.
+
+What this changes in the flow:
+- **Worktree per slice:** the executor works where the conversation works. Create the slice's worktree and branch yourself (`git worktree add … -b feature/s-NN-<slug> <base>`) and run the executor there, or the slice's commits land in the main checkout. Remove the worktree after merge.
+- **Red first is prompt discipline only:** nothing in the harness enforces "tests fail on assertions before code". Check the red commit yourself before accepting the branch.
+- **Lock before the executor starts:**
+  - Set Settings > General > **Plan Review Policy = "Request review"** ("Always Ask"). The planner then pauses on its plan and notifies the human.
+  - At that pause, the human runs `scripts/lock-slice.sh S-NN` and types `yes`. Commit the lock, then click **Proceed**.
+  - With "Always Proceed", the executor starts at once and the lock would come after the code.
 
 ## Working rules (were in the previous orchestrator's private memory)
 
