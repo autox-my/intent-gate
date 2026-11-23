@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -149,7 +150,7 @@ func classify(o outcome) Result {
 	if o.panicked {
 		return Result{Status: ErrorStatus, Err: "the provider panicked"}
 	}
-	res := Result{Findings: valid(o.findings)}
+	res := Result{Findings: dedupeCrossKind(valid(o.findings))}
 	res.Counts = count(res.Findings)
 	switch {
 	case o.err == nil:
@@ -174,6 +175,58 @@ func valid(in []Finding) []Finding {
 	for _, f := range in {
 		switch f.Kind {
 		case Omission, Addition, Weakening:
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// normalizeQuote is the key under which findings about the same text are one: white space
+// collapsed, lower case.
+func normalizeQuote(q string) string {
+	return strings.ToLower(strings.Join(strings.Fields(q), " "))
+}
+
+// kindRank orders kinds for ties: Omission, then Weakening, then Addition.
+func kindRank(k Kind) int {
+	switch k {
+	case Omission:
+		return 0
+	case Weakening:
+		return 1
+	}
+	return 2
+}
+
+// outranks reports whether a beats b: a finite confidence beats NaN, a higher one beats a lower
+// one, and equal confidences (or two NaNs) fall back to kindRank. It is a strict weak ordering.
+func outranks(a, b Finding) bool {
+	an, bn := math.IsNaN(a.Confidence), math.IsNaN(b.Confidence)
+	if an != bn {
+		return bn
+	}
+	if !an && a.Confidence != b.Confidence {
+		return a.Confidence > b.Confidence
+	}
+	return kindRank(a.Kind) < kindRank(b.Kind)
+}
+
+// dedupeCrossKind keeps, for each non-empty normalized quote, only the findings of the one kind
+// that outranks the others about it (S-27), in the order given. Findings with an empty
+// normalized quote are never merged. It is pure, deterministic and idempotent, and the winning
+// kind does not depend on the input order.
+func dedupeCrossKind(in []Finding) []Finding {
+	best := map[string]Finding{}
+	for _, f := range in {
+		k := normalizeQuote(f.Quote)
+		if b, seen := best[k]; k != "" && (!seen || outranks(f, b)) {
+			best[k] = f
+		}
+	}
+	var out []Finding
+	for _, f := range in {
+		k := normalizeQuote(f.Quote)
+		if k == "" || best[k].Kind == f.Kind {
 			out = append(out, f)
 		}
 	}

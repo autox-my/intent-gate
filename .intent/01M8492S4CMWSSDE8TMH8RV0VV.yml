@@ -1,0 +1,26 @@
+schema: intentgate.lock/1
+id: 01M8492S4CMWSSDE8TMH8RV0VV
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 94bf8d3cac36d406106c9a403ea67769d5b3cf3b57acfd061f16134c9a9ca5e8
+  source: antigravity-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: Plan review merges cross-kind duplicate findings on the same normalized quote by keeping the highest-confidence kind (omission > weakening > addition on ties) in both Run and Jev.Review before computing counts
+    footprint:
+      - internal/planreview/**
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-23T13:21:15Z"
+  method: hook
+  review_duration_ms: 112606
+  drafted_by: antigravity/gemini-flash-worker-agy
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:a730eba236f11c7096588638f192e30d2a3c0cf5f7896e9cf52838090900c1ef

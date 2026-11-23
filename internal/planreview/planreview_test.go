@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -225,4 +227,120 @@ func TestDisplay_ErrorLineIsBounded(t *testing.T) {
 	if out := Display(Result{Status: ErrorStatus, Err: "provider said no"}); out != "Plan review: error: provider said no\n" {
 		t.Errorf("a short error is changed: %q", out)
 	}
+}
+
+// texts is the Text of each finding, in order: each test finding has a unique Text, so it names it.
+func texts(fs []Finding) []string {
+	out := []string{}
+	for _, f := range fs {
+		out = append(out, f.Text)
+	}
+	return out
+}
+
+func reversed(fs []Finding) []Finding {
+	out := make([]Finding, len(fs))
+	for i, f := range fs {
+		out[len(fs)-1-i] = f
+	}
+	return out
+}
+
+// An Omission and a Weakening (or any two kinds) about the same quote are one finding: the kind
+// with the higher confidence wins, then Omission > Weakening > Addition (S-27).
+func TestRun_DedupeCrossKind(t *testing.T) {
+	nan := math.NaN()
+	const q = "Add a --quiet flag."
+	cases := []struct {
+		name      string
+		in        []Finding
+		want      []string // Text of what is kept, in input order
+		wantCount Counts
+		anyOrder  bool // the winner is the same in both input orders
+	}{
+		{"omission beats weakening", []Finding{
+			{Omission, q, "o", 0.95}, {Weakening, q, "w", 0.85}}, []string{"o"}, Counts{Omissions: 1}, true},
+		{"weakening beats omission", []Finding{
+			{Weakening, q, "w", 0.99}, {Omission, q, "o", 0.91}}, []string{"w"}, Counts{Weakenings: 1}, true},
+		{"tie: omission over weakening", []Finding{
+			{Omission, q, "o", 0.9}, {Weakening, q, "w", 0.9}}, []string{"o"}, Counts{Omissions: 1}, true},
+		{"tie: weakening over addition", []Finding{
+			{Weakening, q, "w", 0.8}, {Addition, q, "a", 0.8}}, []string{"w"}, Counts{Weakenings: 1}, true},
+		{"tie: omission over addition", []Finding{
+			{Omission, q, "o", 0.8}, {Addition, q, "a", 0.8}}, []string{"o"}, Counts{Omissions: 1}, true},
+		{"case and white space are not a difference", []Finding{
+			{Omission, "  Add  a --quiet flag. ", "o", 0.7}, {Weakening, "add a --quiet flag.", "w", 0.9}},
+			[]string{"w"}, Counts{Weakenings: 1}, true},
+		{"same kind, several findings, all kept when it wins", []Finding{
+			{Weakening, q, "w1", 0.99}, {Omission, q, "o", 0.9}, {Weakening, q, "w2", 0.7}},
+			[]string{"w1", "w2"}, Counts{Weakenings: 2}, false},
+		{"different quotes are not merged", []Finding{
+			{Omission, q, "o", 0.9}, {Weakening, "Keep the report short.", "w", 0.9}},
+			[]string{"o", "w"}, Counts{Omissions: 1, Weakenings: 1}, false},
+		{"empty quotes are never merged", []Finding{
+			{Omission, "", "o", 0.9}, {Weakening, "", "w", 0.5}, {Addition, "   ", "a", 0.4}, {Weakening, "\t", "w2", 0.3}},
+			[]string{"o", "w", "a", "w2"}, Counts{Omissions: 1, Additions: 1, Weakenings: 2}, false},
+		{"NaN loses to finite 0", []Finding{
+			{Omission, q, "o", nan}, {Weakening, q, "w", 0}}, []string{"w"}, Counts{Weakenings: 1}, true},
+		{"two NaNs: kind precedence", []Finding{
+			{Addition, q, "a", nan}, {Weakening, q, "w", nan}, {Omission, q, "o", nan}},
+			[]string{"o"}, Counts{Omissions: 1}, true},
+		{"an unknown kind never suppresses a valid one", []Finding{
+			{Kind("bogus"), q, "x", 1.0}, {Weakening, q, "w", 0.5}}, []string{"w"}, Counts{Weakenings: 1}, true},
+	}
+	check := func(t *testing.T, res Result, want []string, wc Counts, label string) {
+		t.Helper()
+		if got := texts(res.Findings); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: kept %v, want %v", label, got, want)
+		}
+		if res.Counts != wc {
+			t.Errorf("%s: counts = %+v, want %+v", label, res.Counts, wc)
+		}
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := fake(func(context.Context, string, string) ([]Finding, error) { return c.in, nil })
+			res := Run(context.Background(), r, "root", "plan", time.Second)
+			if res.Status != Complete {
+				t.Fatalf("status = %q, want complete", res.Status)
+			}
+			check(t, res, c.want, c.wantCount, "input order")
+			if c.anyOrder {
+				rev := reversed(c.in)
+				r := fake(func(context.Context, string, string) ([]Finding, error) { return rev, nil })
+				check(t, Run(context.Background(), r, "root", "plan", time.Second), c.want, c.wantCount, "reversed")
+			}
+		})
+	}
+	t.Run("idempotent", func(t *testing.T) {
+		in := []Finding{{Omission, q, "o", 0.95}, {Weakening, q, "w", 0.85}, {Addition, "Other thing here.", "a", 0.9}}
+		r := fake(func(context.Context, string, string) ([]Finding, error) { return in, nil })
+		once := Run(context.Background(), r, "root", "plan", time.Second)
+		again := Run(context.Background(), fake(func(context.Context, string, string) ([]Finding, error) {
+			return once.Findings, nil
+		}), "root", "plan", time.Second)
+		if !reflect.DeepEqual(once.Findings, again.Findings) {
+			t.Errorf("not idempotent: %v then %v", once.Findings, again.Findings)
+		}
+	})
+	dup := []Finding{{Omission, q, "o", 0.95}, {Weakening, q, "w", 0.85}}
+	t.Run("partial", func(t *testing.T) {
+		r := fake(func(ctx context.Context, _, _ string) ([]Finding, error) {
+			<-ctx.Done()
+			return dup, ctx.Err()
+		})
+		res := Run(context.Background(), r, "root", "plan", 500*time.Millisecond)
+		if res.Status != Partial {
+			t.Fatalf("status = %q, want partial", res.Status)
+		}
+		check(t, res, []string{"o"}, Counts{Omissions: 1}, "partial")
+	})
+	t.Run("error with findings", func(t *testing.T) {
+		r := fake(func(context.Context, string, string) ([]Finding, error) { return dup, errors.New("boom") })
+		res := Run(context.Background(), r, "root", "plan", time.Second)
+		if res.Status != ErrorStatus {
+			t.Fatalf("status = %q, want error", res.Status)
+		}
+		check(t, res, []string{"o"}, Counts{Omissions: 1}, "error")
+	})
 }
