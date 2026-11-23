@@ -39,8 +39,12 @@ The rate is **derived, not collected**. Every amendment is written into the lock
 footprint-amendment rate = locks with ≥ 1 footprint amendment / locks merged, per 30 days
 ```
 
-`intentgate stats --since 30d` prints it with the other Phase 0 signals that git history alone can answer: lock count, ratification methods and median review duration. The window ends at the `HEAD` commit's committer time, not the wall clock, so the same commit gives the same numbers. Findings per PR need the CI artifacts and come later. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
+`intentgate stats --since 30d` prints it with the other Phase 0 signals that git history alone can answer: lock count, ratification methods and median review duration. The window ends at the `HEAD` commit's committer time, not the wall clock, so the same commit gives the same numbers. The v2 review's noise threshold applies: above about 40%, the footprint suggestions at ratification are wrong and need fixing before anything else.
 
 ### Merged PRs and lock coverage
 
 For repositories that merge PRs with merge commits, `stats` also counts the merges on `HEAD`'s first-parent history inside the window (`merged_prs`), those that are the adding commit of at least one valid lock (`merged_prs_with_lock`), and their ratio (`lock_coverage`, `n/a` with no merges). It is the share of merged work that went through an intent lock. Squash- and rebase-merged PRs leave no merge commit and are invisible here; counting them needs the forge.
+
+### Findings per PR (CI artifacts)
+
+With `--artifacts <dir>`, `intentgate stats` also walks `<dir>` for downloaded CI `intentgate` artifacts (`audit.json` paired with sibling `verify.json`) without making network calls or reading the wall clock. Each in-window `verify` event with `pr > 0` must have a sibling regular `verify.json` whose SHA-256 matches `audit.json`'s `verify_sha256` (when set) and whose `outcome` agrees; corrupt, symlinked, oversized, missing or mismatched files exit 3. Bot-skipped runs (`outcome: skipped`) are excluded. Multiple runs for the same `(repo, pr)` collapse deterministically to the latest in-window run (by `at`, then `head_sha`, `verify_sha256`, relative path). PRs whose latest run evaluated a lock (`clean`, `findings`, `unverifiable`; excluding `no-lock`) form the denominator (`prs_with_lock`) for `prs_with_findings` (`findings_pr_rate`, `findings_pr_ratio`), footprint `total_findings`, mean `findings_per_pr`, `median_findings_per_pr` (lower middle; `null`/`n/a` when 0), and `prs_with_suspect_lock`. Without `--artifacts`, output is unchanged.
