@@ -156,7 +156,7 @@ func (j Jev) Review(ctx context.Context, rootIntent, plan string) ([]Finding, er
 			out = append(out, Finding{Kind: Addition, Quote: it, Text: addText, Confidence: 1 - v})
 		}
 	}
-	return out, nil
+	return dedupeCrossKind(out), nil
 }
 
 // ask posts the request and returns the answers by question id. The key travels only in the
