@@ -36,8 +36,9 @@ const (
 	maxStateBytes = 48000            // of the root intent (its tail) and of the plan (its head)
 	maxRespBytes  = 1 << 20          // of the response body
 	backstop      = 10 * time.Second // of the HTTP client when the caller's context has no earlier deadline
-	lowNoul       = 0.3              // omission and addition when the answer is below this
-	highNoul      = 0.7              // weakening when the answer is above this
+	omitMax       = 0.30             // omission when the answer is below this (calibrated in eval/)
+	weakMin       = 0.85             // weakening when the answer is above this (calibrated in eval/)
+	addMax        = 0.15             // addition when the answer is below this (calibrated in eval/)
 )
 
 // The questions' instructions: three fixed strings that name an item id and never hold item text.
@@ -142,17 +143,17 @@ func (j Jev) Review(ctx context.Context, rootIntent, plan string) ([]Finding, er
 	}
 	var out []Finding
 	for i, it := range rootItems {
-		if v, ok := noul(fmt.Sprintf("omit_%d", i)); ok && v < lowNoul {
+		if v, ok := noul(fmt.Sprintf("omit_%d", i)); ok && v < omitMax {
 			out = append(out, Finding{Kind: Omission, Quote: it, Text: omitText, Confidence: 1 - v})
 		}
 	}
 	for i, it := range rootItems {
-		if v, ok := noul(fmt.Sprintf("weak_%d", i)); ok && v > highNoul {
+		if v, ok := noul(fmt.Sprintf("weak_%d", i)); ok && v > weakMin {
 			out = append(out, Finding{Kind: Weakening, Quote: it, Text: weakText, Confidence: v})
 		}
 	}
 	for i, it := range planItems {
-		if v, ok := noul(fmt.Sprintf("add_%d", i)); ok && v < lowNoul {
+		if v, ok := noul(fmt.Sprintf("add_%d", i)); ok && v < addMax {
 			out = append(out, Finding{Kind: Addition, Quote: it, Text: addText, Confidence: 1 - v})
 		}
 	}
