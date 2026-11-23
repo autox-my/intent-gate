@@ -44,10 +44,13 @@ def _scrub(text: str, key: str) -> str:
 
 
 def _decode_response(raw: bytes) -> tuple[str, dict[str, float]]:
-    doc = json.loads(raw.decode("utf-8"))
-    answers_raw = doc.get("answers")
-    if not isinstance(doc, dict) or not isinstance(answers_raw, dict):
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise RuntimeError("jev: bad JSON response") from None
+    if not isinstance(doc, dict) or not isinstance(doc.get("answers"), dict):
         raise RuntimeError("jev: bad JSON response (missing answers)")
+    answers_raw = doc["answers"]
     cleaned: dict[str, float] = {}
     for qid in sorted(answers_raw):
         v = extract_noul(answers_raw, qid)
@@ -101,6 +104,16 @@ def run_dataset(
     for case in dataset_rows:
         ritems = items(case["root_intent"], MAX_ITEMS_EACH)
         pitems = items(case["plan"], 0)[:MAX_ITEMS_EACH]
+        if not ritems or not pitems:
+            results.append({
+                "case_id": case["id"],
+                "model": model,
+                "latency_ms": 0,
+                "root_items": ritems,
+                "plan_items": pitems,
+                "answers": {},
+            })
+            continue
         req = build_jev_request(case["root_intent"], case["plan"], model=model)
         t0 = time.monotonic()
         resp_model, answers = ask_jev(base_url, key, req, timeout_s=timeout_s)

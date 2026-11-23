@@ -1,4 +1,3 @@
-import re
 from typing import Tuple
 
 MAX_ITEMS_EACH = 20
@@ -17,8 +16,6 @@ ADD_ASK = (
     "Is `state.items.p%d` asked for by `state.root_intent`, or work implied by it "
     "(tests, docs, migrations, lockfile updates)?" + DATA_NOTE
 )
-
-_MARKER_RE = re.compile(r"^(?:[-*+]|[0-9]+[.)])\s(.*)$")
 
 
 def _strip_marker(line: str) -> Tuple[str, bool]:
@@ -60,9 +57,9 @@ def _raw_items(text: str) -> list[str]:
         rest, ok = _strip_marker(line)
         segments = [rest] if ok else _split_sentences(line)
         for seg in segments:
-            collapsed = " ".join(seg.split())
-            if len(collapsed.split()) >= 3:
-                out.append(collapsed)
+            words = seg.split()
+            if len(words) >= 3:
+                out.append(" ".join(words))
     return out
 
 

@@ -1,10 +1,14 @@
+import contextlib
+import io
 import json
 import math
+import os
 import pathlib
 import sys
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import mock
 
 EVAL_ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(EVAL_ROOT) not in sys.path:
@@ -190,6 +194,10 @@ class TestMetricsAndSweep(unittest.TestCase):
         self.assertIsNotNone(ece)
         self.assertAlmostEqual(ece, 0.45, places=6)
 
+        ece_edges = metrics.ece_score([1.0, 0.0], [1, 0], bins=10)
+        self.assertIsNotNone(ece_edges)
+        self.assertAlmostEqual(ece_edges, 0.0, places=6)
+
     def test_evaluate_and_sweep(self):
         ds = [
             {
@@ -243,6 +251,8 @@ class TestMetricsAndSweep(unittest.TestCase):
         self.assertEqual(base["families"]["addition"]["tp"], 1)
         self.assertEqual(base["families"]["addition"]["fp"], 1)
         self.assertAlmostEqual(base["families"]["addition"]["precision"], 0.5, places=6)
+        self.assertAlmostEqual(base["families"]["addition"]["fpr"], 0.5, places=6)
+        self.assertAlmostEqual(base["families"]["omission"]["fpr"], 0.0, places=6)
 
         sw = metrics.sweep_thresholds(ds, scores, min_precision=0.90)
         self.assertTrue(sw["meets_precision_target"])
@@ -251,11 +261,44 @@ class TestMetricsAndSweep(unittest.TestCase):
         self.assertEqual(best["omit_max"], 0.30)  # tie-break prefers baseline 0.30
         self.assertEqual(best["weak_min"], 0.70)
 
+    def test_sweep_fallback_when_precision_target_unmet(self):
+        ds = [{
+            "id": "c1",
+            "category": "addition",
+            "root_intent": "- Keep strict mode.",
+            "plan": "1. Keep strict mode.\n2. Rewrite CLI in Rust.\n3. Add dark mode.",
+            "expected_omissions": [],
+            "expected_weakenings": [],
+            "expected_additions": ["Rewrite CLI in Rust."],
+        }]
+        scores = [{
+            "case_id": "c1",
+            "model": "jev-test",
+            "latency_ms": 10,
+            "root_items": ["Keep strict mode."],
+            "plan_items": ["Keep strict mode.", "Rewrite CLI in Rust.", "Add dark mode."],
+            "answers": {
+                "omit_0": 0.95,
+                "weak_0": 0.05,
+                "add_0": 0.95,
+                "add_1": 0.05,
+                "add_2": 0.02,  # unfixable FP even at tightest add_max=0.15 -> max precision = 0.5
+            },
+        }]
+        sw = metrics.sweep_thresholds(ds, scores, min_precision=0.95)
+        self.assertFalse(sw["meets_precision_target"])
+        self.assertAlmostEqual(sw["best"]["families"]["addition"]["precision"], 0.5, places=6)
+        self.assertEqual(
+            sw["best"]["thresholds"],
+            {"omit_max": 0.30, "weak_min": 0.70, "add_max": 0.30},
+        )
+
 
 class TestRunnerTransport(unittest.TestCase):
     def test_url_validation_and_error_scrubbing(self):
         for bad in [
             "http://example.com",
+            "http://127.0.0.1.evil.com/",
             "https://user:pass@api.typesafe.ai",
             "https://api.typesafe.ai?foo=bar",
             "https://api.typesafe.ai#frag",
@@ -264,26 +307,41 @@ class TestRunnerTransport(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runner.validate_base_url(bad)
         self.assertEqual(runner.validate_base_url("http://127.0.0.1:8080/"), "http://127.0.0.1:8080")
+        self.assertEqual(runner.validate_base_url("http://[::1]:8080/"), "http://[::1]:8080")
+        self.assertEqual(runner.validate_base_url("http://localhost:8080/"), "http://localhost:8080")
         self.assertEqual(runner.validate_base_url("https://api.typesafe.ai/"), "https://api.typesafe.ai")
 
     def test_loopback_roundtrip_and_redirect_rejection(self):
         seen_headers = {}
+        seen_paths = []
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args):
                 return
 
             def do_POST(self):
+                seen_paths.append(self.path)
                 if self.path == "/redirect/v1/systemone":
                     self.send_response(302)
                     self.send_header("Location", "https://evil.example/")
                     self.end_headers()
                     return
-                seen_headers["auth"] = self.headers.get("Authorization")
-                length = int(self.headers.get("Content-Length", "0"))
-                req = json.loads(self.rfile.read(length))
-                ans = {qid: {"type": "noul", "noul": 0.85} for qid in req["questions"]}
-                body = json.dumps({"model": "jev-loopback", "answers": ans}).encode("utf-8")
+                if self.path == "/oversize/v1/systemone":
+                    body = b"{" + b" " * (runner.MAX_RESP_BYTES + 10)
+                elif self.path == "/nonobject/v1/systemone":
+                    body = b"[]"
+                elif self.path == "/malformed/v1/systemone":
+                    body = b"{bad"
+                elif self.path == "/httperror/v1/systemone":
+                    self.send_response(500, "secret-key-999 leaked")
+                    self.end_headers()
+                    return
+                else:
+                    seen_headers["auth"] = self.headers.get("Authorization")
+                    length = int(self.headers.get("Content-Length", "0"))
+                    req = json.loads(self.rfile.read(length))
+                    ans = {qid: {"type": "noul", "noul": 0.85} for qid in req["questions"]}
+                    body = json.dumps({"model": "jev-loopback", "answers": ans}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -311,12 +369,82 @@ class TestRunnerTransport(unittest.TestCase):
             self.assertEqual(res[0]["model"], "jev-loopback")
             self.assertIn("omit_0", res[0]["answers"])
 
+            req_stub = {"model": "m", "state": {}, "questions": {}}
             with self.assertRaises(RuntimeError) as ctx:
-                runner.ask_jev(f"http://127.0.0.1:{port}/redirect", "secret-key-999", {"model": "m", "state": {}, "questions": {}})
+                runner.ask_jev(f"http://127.0.0.1:{port}/redirect", "secret-key-999", req_stub)
             self.assertNotIn("secret-key-999", str(ctx.exception))
+
+            with self.assertRaises(RuntimeError) as over_ctx:
+                runner.ask_jev(f"http://127.0.0.1:{port}/oversize", "secret-key-999", req_stub)
+            self.assertIn(str(runner.MAX_RESP_BYTES), str(over_ctx.exception))
+
+            for bad_prefix in ("/nonobject", "/malformed"):
+                with self.assertRaises(RuntimeError):
+                    runner.ask_jev(f"http://127.0.0.1:{port}{bad_prefix}", "secret-key-999", req_stub)
+
+            with self.assertRaises(RuntimeError) as err_ctx:
+                runner.ask_jev(f"http://127.0.0.1:{port}/httperror", "secret-key-999", req_stub)
+            self.assertNotIn("secret-key-999", str(err_ctx.exception))
+            self.assertIn("[redacted]", str(err_ctx.exception))
+
+            calls_before = len(seen_paths)
+            empty_res = runner.run_dataset(
+                [{
+                    "id": "empty-1",
+                    "category": "clean",
+                    "root_intent": "ok.",
+                    "plan": "ok.",
+                    "expected_omissions": [],
+                    "expected_weakenings": [],
+                    "expected_additions": [],
+                }],
+                f"http://127.0.0.1:{port}",
+                "secret-key-999",
+                model="jev-test",
+            )
+            self.assertEqual(len(seen_paths), calls_before)
+            self.assertEqual(empty_res[0]["answers"], {})
+            self.assertEqual(empty_res[0]["latency_ms"], 0)
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+class TestCLI(unittest.TestCase):
+    def test_score_sweep_and_missing_key(self):
+        ds = str(EVAL_ROOT / "datasets" / "plan_review.jsonl")
+        sc = str(EVAL_ROOT / "results" / "plan-review-jev.jsonl")
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = cli.main(["score", "--dataset", ds, "--scores", sc, "--format", "json"])
+        self.assertEqual(rc, 0)
+        score_doc = json.loads(out.getvalue())
+        self.assertEqual(score_doc["cases"], 28)
+
+        out_text = io.StringIO()
+        with contextlib.redirect_stdout(out_text):
+            rc_t = cli.main(["score", "--dataset", ds, "--scores", sc, "--format", "text"])
+        self.assertEqual(rc_t, 0)
+        self.assertIn("cases: 28", out_text.getvalue())
+
+        out_sw = io.StringIO()
+        with contextlib.redirect_stdout(out_sw):
+            rc_sw = cli.main(["sweep", "--dataset", ds, "--scores", sc, "--min-precision", "0.90", "--format", "json"])
+        self.assertEqual(rc_sw, 0)
+        sw_doc = json.loads(out_sw.getvalue())
+        self.assertEqual(sw_doc["best"]["thresholds"], {"omit_max": 0.3, "weak_min": 0.85, "add_max": 0.15})
+
+        out_swt = io.StringIO()
+        with contextlib.redirect_stdout(out_swt):
+            rc_swt = cli.main(["sweep", "--dataset", ds, "--scores", sc, "--format", "text"])
+        self.assertEqual(rc_swt, 0)
+        self.assertIn("-- best --", out_swt.getvalue())
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with contextlib.redirect_stderr(io.StringIO()):
+                rc_run = cli.main(["run", "--dataset", ds, "--out", sc])
+        self.assertEqual(rc_run, 2)
 
 
 class TestDatasetIntegrity(unittest.TestCase):
