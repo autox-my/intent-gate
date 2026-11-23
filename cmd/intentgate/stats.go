@@ -3,46 +3,54 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/autox-my/intent-gate/internal/audit"
 	"github.com/autox-my/intent-gate/internal/gitx"
 	"github.com/autox-my/intent-gate/internal/lock"
 )
 
 // `intentgate stats` (audit-metrics.md §2, REQ-0041): the footprint-amendment rate and the other
-// Phase 0 signals that git history alone can answer. The window ends at HEAD's committer time, so
-// the same HEAD gives the same bytes; the command reads no clock.
+// Phase 0 signals that git history alone can answer. With `--artifacts <dir>`, it also aggregates
+// downloaded CI artifacts offline. The window ends at HEAD's committer time, so the same HEAD gives
+// the same bytes; the command reads no clock.
 //
-// Exit codes: 0; 2 usage; 3 git cannot be read.
+// Exit codes: 0; 2 usage; 3 git or artifacts cannot be read.
 
 const (
-	statsUsage   = "usage: intentgate stats [--since <N>d] [--format text|json]\n"
-	statsSchema  = "intentgate.stats/1"
-	notAvailable = "n/a"
+	statsUsage       = "usage: intentgate stats [--since <N>d] [--format text|json] [--artifacts <dir>]\n"
+	statsSchema      = "intentgate.stats/1"
+	notAvailable     = "n/a"
+	maxArtifactBytes = 10 << 20
 )
 
 // statsDoc is the intentgate.stats/1 document; the field order is the key order.
 type statsDoc struct {
-	Schema                 string        `json:"schema"`
-	SinceDays              int           `json:"since_days"`
-	WindowStart            string        `json:"window_start"`
-	WindowEnd              string        `json:"window_end"`
-	Head                   string        `json:"head"`
-	Locks                  int           `json:"locks"`
-	Invalid                int           `json:"invalid"`
-	Amended                int           `json:"amended"`
-	AmendmentRate          string        `json:"amendment_rate"`
-	AmendmentRatio         string        `json:"amendment_ratio"`
-	MergedPRs              int           `json:"merged_prs"`
-	MergedPRsWithLock      int           `json:"merged_prs_with_lock"`
-	LockCoverage           string        `json:"lock_coverage"`
-	LockCoverageRatio      string        `json:"lock_coverage_ratio"`
-	Methods                []methodCount `json:"methods"`
-	MedianReviewDurationMS *int          `json:"median_review_duration_ms"`
+	Schema                 string                 `json:"schema"`
+	SinceDays              int                    `json:"since_days"`
+	WindowStart            string                 `json:"window_start"`
+	WindowEnd              string                 `json:"window_end"`
+	Head                   string                 `json:"head"`
+	Locks                  int                    `json:"locks"`
+	Invalid                int                    `json:"invalid"`
+	Amended                int                    `json:"amended"`
+	AmendmentRate          string                 `json:"amendment_rate"`
+	AmendmentRatio         string                 `json:"amendment_ratio"`
+	MergedPRs              int                    `json:"merged_prs"`
+	MergedPRsWithLock      int                    `json:"merged_prs_with_lock"`
+	LockCoverage           string                 `json:"lock_coverage"`
+	LockCoverageRatio      string                 `json:"lock_coverage_ratio"`
+	Methods                []methodCount          `json:"methods"`
+	MedianReviewDurationMS *int                   `json:"median_review_duration_ms"`
+	Artifacts              *audit.ArtifactSummary `json:"artifacts,omitempty"`
 }
 
 type methodCount struct {
@@ -55,8 +63,14 @@ func runStats(args []string, stdout io.Writer, deps Deps) int {
 	fs := newFlags("stats")
 	since := fs.String("since", "30d", "")
 	format := fs.String("format", "text", "")
+	artifacts := fs.String("artifacts", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return t.usage(statsUsage, "")
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["artifacts"] && *artifacts == "" {
+		return t.usage(statsUsage, "--artifacts must name a directory")
 	}
 	days, ok := parseDays(*since)
 	if !ok {
@@ -66,7 +80,7 @@ func runStats(args []string, stdout io.Writer, deps Deps) int {
 		return t.usage(statsUsage, fmt.Sprintf("unknown --format %q", *format))
 	}
 
-	doc, err := computeStats(deps.Dir, days)
+	doc, err := computeStats(deps.Dir, days, *artifacts)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate stats: %v", err)
 	}
@@ -98,7 +112,7 @@ func parseDays(s string) (int, bool) {
 	return n, true
 }
 
-func computeStats(dir string, days int) (statsDoc, error) {
+func computeStats(dir string, days int, artifactsDir string) (statsDoc, error) {
 	headTime, err := gitx.CommitTime(dir, "HEAD")
 	if err != nil {
 		return statsDoc{}, err
@@ -183,7 +197,149 @@ func computeStats(dir string, days int) (statsDoc, error) {
 		m := durations[(len(durations)-1)/2] // the lower middle for an even count
 		doc.MedianReviewDurationMS = &m
 	}
+	if artifactsDir != "" {
+		summary, err := readArtifactSummary(resolve(dir, artifactsDir), start, headTime)
+		if err != nil {
+			return statsDoc{}, err
+		}
+		doc.Artifacts = &summary
+	}
 	return doc, nil
+}
+
+func readArtifactSummary(dir string, start, end time.Time) (audit.ArtifactSummary, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return audit.ArtifactSummary{}, err
+	}
+	if !info.IsDir() {
+		return audit.ArtifactSummary{}, fmt.Errorf("%s is not a directory", dir)
+	}
+	var runs []audit.ArtifactRun
+	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		if d.Name() != "audit.json" {
+			return nil
+		}
+		run, ok, err := loadArtifactPair(dir, path, start, end)
+		if err != nil {
+			return err
+		}
+		if ok {
+			runs = append(runs, run)
+		}
+		return nil
+	})
+	if err != nil {
+		return audit.ArtifactSummary{}, err
+	}
+	return audit.SummarizeArtifacts(runs, start, end), nil
+}
+
+func loadArtifactPair(rootDir, auditPath string, start, end time.Time) (audit.ArtifactRun, bool, error) {
+	ab, err := readRegularBounded(auditPath, maxArtifactBytes)
+	if err != nil {
+		return audit.ArtifactRun{}, false, err
+	}
+	var ev audit.Event
+	if err := json.Unmarshal(ab, &ev); err != nil || ev.Schema != audit.SchemaID {
+		return audit.ArtifactRun{}, false, fmt.Errorf("%s is not a %s event", auditPath, audit.SchemaID)
+	}
+	if ev.Event != audit.EventVerify {
+		return audit.ArtifactRun{}, false, nil
+	}
+	at, err := time.Parse(time.RFC3339, ev.At)
+	if err != nil {
+		return audit.ArtifactRun{}, false, fmt.Errorf("%s has invalid timestamp %q: %w", auditPath, ev.At, err)
+	}
+	if ev.PR <= 0 || at.Before(start) || at.After(end) {
+		return audit.ArtifactRun{}, false, nil
+	}
+	verifyPath := filepath.Join(filepath.Dir(auditPath), "verify.json")
+	vb, err := readRegularBounded(verifyPath, maxArtifactBytes)
+	if err != nil {
+		return audit.ArtifactRun{}, false, err
+	}
+	if ev.VerifySHA256 != "" && sha256Hex(vb) != ev.VerifySHA256 {
+		return audit.ArtifactRun{}, false, fmt.Errorf("%s does not match verify_sha256 in %s", verifyPath, auditPath)
+	}
+	outcome, findingsCount, suspectLocks, err := parseVerifyArtifact(verifyPath, vb, ev.Outcome)
+	if err != nil {
+		return audit.ArtifactRun{}, false, err
+	}
+	rel, err := filepath.Rel(rootDir, auditPath)
+	if err != nil {
+		rel = auditPath
+	}
+	return audit.ArtifactRun{
+		Event:          ev,
+		At:             at,
+		VerifyOutcome:  outcome,
+		FootprintCount: findingsCount,
+		SuspectLocks:   suspectLocks,
+		Source:         filepath.ToSlash(rel),
+	}, true, nil
+}
+
+func readRegularBounded(path string, maxBytes int64) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|auditOpenFlags, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("%s exceeds %d bytes", path, maxBytes)
+	}
+	return data, nil
+}
+
+type verifyArtifact struct {
+	Schema  string `json:"schema"`
+	Outcome string `json:"outcome"`
+	Locks   []struct {
+		Suspect []string `json:"suspect"`
+	} `json:"locks"`
+	Findings []json.RawMessage `json:"findings"`
+}
+
+func parseVerifyArtifact(path string, vb []byte, wantOutcome string) (outcome string, findings, suspect int, err error) {
+	var v verifyArtifact
+	if err := json.Unmarshal(vb, &v); err != nil {
+		return "", 0, 0, fmt.Errorf("%s: invalid JSON: %w", path, err)
+	}
+	if v.Schema != "intentgate.verify/1" || !validVerifyOutcome(v.Outcome) {
+		return "", 0, 0, fmt.Errorf("%s is not a valid intentgate.verify/1 document", path)
+	}
+	if wantOutcome != "" && v.Outcome != wantOutcome {
+		return "", 0, 0, fmt.Errorf("%s outcome %q does not match audit.json outcome %q", path, v.Outcome, wantOutcome)
+	}
+	for _, l := range v.Locks {
+		if len(l.Suspect) > 0 {
+			suspect++
+		}
+	}
+	return v.Outcome, len(v.Findings), suspect, nil
+}
+
+func validVerifyOutcome(s string) bool {
+	switch s {
+	case "skipped", "no-lock", "clean", "findings", "unverifiable":
+		return true
+	}
+	return false
 }
 
 func statsText(d statsDoc) string {
@@ -208,6 +364,15 @@ func statsText(d statsDoc) string {
 		fmt.Fprintf(&b, "median review duration: %s\n", notAvailable)
 	} else {
 		fmt.Fprintf(&b, "median review duration: %d ms\n", *d.MedianReviewDurationMS)
+	}
+	if a := d.Artifacts; a != nil {
+		med := notAvailable
+		if a.MedianFindingsPerPR != nil {
+			med = strconv.Itoa(*a.MedianFindingsPerPR)
+		}
+		fmt.Fprintf(&b, "artifact PRs: %d (%d with a lock, %d runs)\n", a.PRs, a.PRsWithLock, a.Runs)
+		fmt.Fprintf(&b, "PRs with findings: %s (%s, %d with suspect lock)\n", a.FindingsPRRate, a.FindingsPRRatio, a.PRsWithSuspectLock)
+		fmt.Fprintf(&b, "findings per PR: %s (total %d, median %s)\n", a.FindingsPerPR, a.TotalFindings, med)
 	}
 	return b.String()
 }
