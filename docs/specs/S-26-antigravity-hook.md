@@ -52,6 +52,11 @@ No new claims and no Baseline changes: REQ-0002 ("The plan-approval hook shall c
   - For `antigravity`: plan `.agents/hooks.json` (merge top-level `"intentgate"` entry idempotently, preserving other named hooks; exit 3 and leave untouched on invalid JSON or wrong types), agent instructions (`AGENTS.md` else `CLAUDE.md` else new `AGENTS.md`), and `.intentgate.yml`. Update `nextStep("antigravity")` and `instructionsSection("antigravity")`.
 - **Process map (`docs/process/sdlc-map.yml`, `docs/process/sdlc-map.md`):**
   - Add `hook antigravity pre`, `hook antigravity post-invocation`, `hook antigravity ratify-question`, `hook antigravity print-config` to the `commands:` list of the hooks entry and re-render with `python3 -I scripts/sdlc-map.py`.
+- Review 1 amendments (binding):
+  - Keep `claims/REQ-0002.yml` untouched in S-26 (linking `TestAntigravityHook_RatifyCardWritesLock` to `REQ-0002` changes `tests_hash` in signed `baselines/phase0-5.json`; defer the claim link to the next Baseline `phase0-6`, matching S-18 / `6b916e8`).
+  - `RootIntentScope` ignores all transcript entries with `step_index >= currentStepIdx` before updating pending/in-flight state (so later steps cannot close an in-flight card and turn it into a prior boundary).
+  - `agyCheckPlan` resolves symlinks on `artifactDirectoryPath` (`filepath.EvalSymlinks`) before enforcing the non-filesystem-root check.
+  - `agyPostInvocation` returns `{}` without pruning pending records when reading `transcriptPath` fails.
 
 ## Tests first (committed red)
 
