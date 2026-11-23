@@ -321,6 +321,8 @@ class TestRunnerTransport(unittest.TestCase):
 
             def do_POST(self):
                 seen_paths.append(self.path)
+                length = int(self.headers.get("Content-Length", "0"))
+                raw_req = self.rfile.read(length) if length > 0 else b""
                 if self.path == "/redirect/v1/systemone":
                     self.send_response(302)
                     self.send_header("Location", "https://evil.example/")
@@ -338,15 +340,17 @@ class TestRunnerTransport(unittest.TestCase):
                     return
                 else:
                     seen_headers["auth"] = self.headers.get("Authorization")
-                    length = int(self.headers.get("Content-Length", "0"))
-                    req = json.loads(self.rfile.read(length))
+                    req = json.loads(raw_req)
                     ans = {qid: {"type": "noul", "noul": 0.85} for qid in req["questions"]}
                     body = json.dumps({"model": "jev-loopback", "answers": ans}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                try:
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
 
         srv = HTTPServer(("127.0.0.1", 0), Handler)
         th = threading.Thread(target=srv.serve_forever, daemon=True)
