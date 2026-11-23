@@ -1,0 +1,9 @@
+[project]
+name = "intentgate-eval"
+version = "0.1.0"
+description = "Offline Phase 1 evaluation and Jev calibration harness for IntentGate"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false

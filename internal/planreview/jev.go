@@ -38,6 +38,9 @@ const (
 	backstop      = 10 * time.Second // of the HTTP client when the caller's context has no earlier deadline
 	lowNoul       = 0.3              // omission and addition when the answer is below this
 	highNoul      = 0.7              // weakening when the answer is above this
+	omitMax       = 0.0              // calibrated omission threshold (stub; tuned after eval)
+	weakMin       = 1.0              // calibrated weakening threshold (stub; tuned after eval)
+	addMax        = 0.0              // calibrated addition threshold (stub; tuned after eval)
 )
 
 // The questions' instructions: three fixed strings that name an item id and never hold item text.

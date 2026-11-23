@@ -826,3 +826,40 @@ func TestJev_DedupeCrossKind(t *testing.T) {
 		t.Errorf("Run counts = %+v, want %+v", res.Counts, wantCounts)
 	}
 }
+
+// REQ-0016, REQ-0017, REQ-0018: per-kind calibrated noul thresholds strictly gate each finding family (S-29).
+func TestJev_PerKindThresholds(t *testing.T) {
+	for name, v := range map[string]float64{"omitMax": omitMax, "weakMin": weakMin, "addMax": addMax} {
+		if !(v > 0 && v < 1) {
+			t.Fatalf("%s = %v, want strictly in (0, 1)", name, v)
+		}
+	}
+	const eps = 0.001
+	f := newFakeJev(t, func([]string) map[string]any {
+		return map[string]any{
+			"omit_0": omitMax - eps,
+			"omit_1": omitMax,
+			"weak_0": weakMin,
+			"weak_1": weakMin + eps,
+			"add_0":  addMax - eps,
+			"add_1":  addMax,
+		}
+	})
+	got, err := f.jev().Review(context.Background(), rootIntent, plan)
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	want := map[Kind]string{
+		Omission:  "Add SARIF output to the report command.",
+		Weakening: "Keep the report under one page.",
+		Addition:  "Add a SARIF writer to the report package.",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("findings = %+v, want %d (one per kind)", got, len(want))
+	}
+	for _, g := range got {
+		if g.Quote != want[g.Kind] {
+			t.Errorf("%s quote = %q, want %q", g.Kind, g.Quote, want[g.Kind])
+		}
+	}
+}
