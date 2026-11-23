@@ -43,7 +43,7 @@ criteria:
 
 ## 2. Plan-approval hook (REQ-0002), method `hook`
 
-Phase 0 ships one hook, for Claude Code.
+Phase 0 ships hooks for Claude Code (§2, §2.1) and Antigravity (§2.2).
 
 | Hook event | Matcher | What it does |
 |---|---|---|
@@ -72,6 +72,20 @@ Some harnesses take plan approval over themselves (T3 Code captures `ExitPlanMod
 - The agent writes the plan to a file and asks one `AskUserQuestion` with header `IntentGate`, the question `Ratify the plan in <path> (sha256 <hex>)?` and the options `Ratify` and `Not yet`. `intentgate hook claude-code ratify-question <path>` prints that question exactly.
 - `PreToolUse` on that question drafts the criteria and runs the plan review, like `pre` for a plan; `PostToolUse` writes the lock only when the answer is `Ratify` and the file still hashes to `<hex>` (the agent can't swap the plan after asking). Any other question, header or answer writes nothing.
 - The lock records `method: hook`, source `claude-code-session`, and the root intent scoped as below, where a ratified card counts as an approved plan.
+
+### 2.2 Antigravity hook (`PreToolUse` + `PostInvocation`)
+
+Antigravity configures lifecycle hooks in `.agents/hooks.json` with camelCase JSON payloads (`conversationId`, `cwd`, `transcriptPath`, `artifactDirectoryPath`, `modelName`, `stepIdx`, `toolCall`, `invocationNum`, `initialNumSteps`). Its `PostToolUse` payload carries no tool response, cannot emit a message (`{}` only), and fires before `transcriptPath` (`transcript_full.jsonl`) flushes the completed step. `PostInvocation` runs after the step flushes to `transcriptPath` and supports `injectSteps` (`systemMessage` with `metadata.user_markdown`). In Antigravity Orchestrator mode, `exit_plan_mode` is an automatic planner-to-executor handoff rather than a human approval click, so ratification uses the `ask_question` ratify card instead (verified by live probe in T3 Code's Antigravity ACP runtime on 2026-11-23).
+
+| Hook event | Matcher | What it does |
+|---|---|---|
+| `PreToolUse` | `ask_question` | Checks whether `toolCall.args.questions` is an exact IntentGate ratify card (one question, `is_multi_select: false`, options strictly `["Ratify", "Not yet"]`, text `IntentGate: Ratify the plan in <path> (sha256 <hex>)?`). Ordinary questions return `{"decision":"allow"}` and write nothing. For a ratify card: checks that `<path>` is inside the repo top level or `artifactDirectoryPath` before reading, verifies SHA-256, drafts criteria (masked), runs the plan review within budget, saves a pending record keyed by `(conversationId, stepIdx)` (storing any error so `PostInvocation` can report it, never root intent text), and always returns `{"decision":"allow"}` (fail open). |
+| `PostInvocation` | *(flat handler)* | Looks up pending ratify records for `conversationId`. With none, returns `{}`. For each pending `stepIdx` now present in `transcriptPath`, removes the pending file and reads the `GENERIC` step at `step_index == stepIdx`: only `status == "DONE"` with an `A1:` line equal to `Ratify` or prefixed with `Ratify, ` (when the human attaches a note) counts as ratification. Anything else reports `IntentGate: no lock (not ratified)`. On ratification: re-checks path scope and SHA-256, extracts root intent from `USER_INPUT` (`source: "USER_EXPLICIT"`) turns (stripping harness wrapper tags, scoped since the previous ratified card) or loads the named `intent:` committed file, builds and writes `.intent/<id>.yml` (`method: hook`, `source: antigravity-session` or `committed-intent`, `drafted_by: antigravity/<model>`, `review_duration_ms` from `PreToolUse` finish to `PostInvocation`) and the local root intent record, and returns `injectSteps` with both `systemMessage` and `metadata.user_markdown` set to the status message. Pending records older than `initialNumSteps` whose step never appeared in the transcript are dropped silently; pending records older than 24 hours are pruned. |
+
+- `intentgate hook antigravity ratify-question <path>` prints the exact `ask_question` item JSON (`{"question":"IntentGate: Ratify the plan in <path> (sha256 <hex>)?","options":["Ratify","Not yet"],"is_multi_select":false}`).
+- `intentgate hook antigravity print-config` prints the `.agents/hooks.json` fragment under top-level key `"intentgate"` (`PreToolUse` on `ask_question` timeout 60 s; `PostInvocation` timeout 30 s).
+- Hook processes run with working directory `.agents/`, so the adapter always resolves git and relative paths against `stdin.cwd`.
+- Hooks load at turn/phase boundaries; `intentgate init --agent antigravity` merges `"intentgate"` into `.agents/hooks.json` idempotently without disturbing other named hooks.
 
 Hooks for Codex, Cursor, Kiro and Spec Kit are Phase 2.
 

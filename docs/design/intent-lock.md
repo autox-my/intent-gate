@@ -34,7 +34,7 @@ revision: 1                          # +1 per amendment
 base_ref: main                       # PR base branch at ratification (REQ-0021)
 root_intent:
   sha256: 9f2c…                      # hash of the verbatim root intent (REQ-0006, REQ-0014)
-  source: claude-code-session        # claude-code-session | issue | plan-file
+  source: claude-code-session        # claude-code-session | antigravity-session | issue | plan-file | committed-intent
   redactions: 0                      # secrets masked before hashing (REQ-0015, ratification.md §5)
 criteria:                            # 1..8 items (REQ-0007)
   - id: C1

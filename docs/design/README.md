@@ -59,6 +59,7 @@ internal/ids/              ULIDs for lock ids (time and entropy passed in)
 internal/planreview/       provider interface + Jev provider + "unavailable" fallback
 internal/ratify/           drafting from a plan, secret scan and masking, local root-intent store
 internal/hooks/claudecode/ adapter: Claude Code hooks on plan approval and the ratify card
+internal/hooks/antigravity/ adapter: Antigravity hooks on the ratify card (PreToolUse + PostInvocation)
 internal/gitx/             adapter: changed files, blobs, commit times, merges, via the git CLI
 internal/forge/github/     adapter: issues, check run, comment, commit PRs and reviews (REST API)
 action/                    composite GitHub Action: fetch (or build) intentgate, verify, acceptance, publish
