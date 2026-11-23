@@ -915,7 +915,7 @@ func TestLock_CommittedIntentFields(t *testing.T) {
 		}
 	})
 	t.Run("path and blob are refused with any other source", func(t *testing.T) {
-		for _, src := range []string{"claude-code-session", "issue", "plan-file"} {
+		for _, src := range []string{"claude-code-session", "antigravity-session", "issue", "plan-file"} {
 			withPath, withBlob := validLock(), validLock()
 			withPath.RootIntent.Source, withBlob.RootIntent.Source = src, src
 			withPath.RootIntent.Path = "intents/checkout-v2.md"
@@ -1031,6 +1031,36 @@ func containsAny(list []any, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestLock_AntigravitySessionSource(t *testing.T) {
+	l := validLock()
+	l.RootIntent.Source = "antigravity-session"
+	if ps := Validate(l); len(ps) != 0 {
+		t.Fatalf("Validate: %v", ps)
+	}
+	data, err := Marshal(l)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := Parse(data)
+	if err != nil || !reflect.DeepEqual(back, l) {
+		t.Errorf("round trip: %v\n%+v\nwant %+v", err, back, l)
+	}
+
+	raw, err := os.ReadFile("../../schema/intentgate.lock.v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s map[string]any
+	if err := json.Unmarshal(raw, &s); err != nil {
+		t.Fatal(err)
+	}
+	obj := func(v any) map[string]any { m, _ := v.(map[string]any); return m }
+	enum, _ := obj(obj(obj(obj(s["properties"])["root_intent"])["properties"])["source"])["enum"].([]any)
+	if !containsAny(enum, "antigravity-session") {
+		t.Errorf("schema: root_intent.source enum = %v, want antigravity-session in it", enum)
+	}
 }
 
 // hasKeyIn reports whether any object in the allOf list v has the key k.
