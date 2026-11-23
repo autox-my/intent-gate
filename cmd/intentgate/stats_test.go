@@ -766,6 +766,30 @@ func TestStats_ArtifactsFindingsPerPR(t *testing.T) {
 				_ = os.Symlink(vp, filepath.Join(d, "verify.json"))
 				return d
 			},
+			"symlinked artifacts root": func(t *testing.T) string {
+				realDir := t.TempDir()
+				writeArtifactPair(t, realDir, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				link := filepath.Join(t.TempDir(), "arts-link")
+				if err := os.Symlink(realDir, link); err != nil {
+					t.Fatal(err)
+				}
+				return link
+			},
+			"empty verify_sha256": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, _ := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, Outcome: "clean", Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
+			"empty audit outcome": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				vb, _ := os.ReadFile(vp)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, VerifySHA256: sha256Hex(vb), Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
 			"directory named audit.json": func(t *testing.T) string {
 				d := t.TempDir()
 				_ = os.MkdirAll(filepath.Join(d, "audit.json"), 0o755)
@@ -774,8 +798,15 @@ func TestStats_ArtifactsFindingsPerPR(t *testing.T) {
 		}
 		for name, mk := range badCases {
 			t.Run(name, func(t *testing.T) {
-				if code, _, stderr := r.stats("--artifacts", mk(t)); code != 3 || stderr == "" {
+				code, _, stderr := r.stats("--artifacts", mk(t))
+				if code != 3 || stderr == "" {
 					t.Errorf("%s: exit %d, stderr %q; want 3 and error message", name, code, stderr)
+				}
+				if name == "corrupt audit" && !strings.Contains(stderr, "invalid JSON") {
+					t.Errorf("corrupt audit stderr = %q, want invalid JSON", stderr)
+				}
+				if name == "wrong audit schema" && !strings.Contains(stderr, "is not an intentgate.audit/1 event") {
+					t.Errorf("wrong audit schema stderr = %q, want is not an intentgate.audit/1 event", stderr)
 				}
 			})
 		}

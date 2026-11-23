@@ -60,31 +60,18 @@ type methodCount struct {
 
 func runStats(args []string, stdout io.Writer, deps Deps) int {
 	t := newTerm("stats", nil, stdout, deps)
-	fs := newFlags("stats")
-	since := fs.String("since", "30d", "")
-	format := fs.String("format", "text", "")
-	artifacts := fs.String("artifacts", "", "")
-	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
-		return t.usage(statsUsage, "")
+	days, format, artifactsDir, msg := parseStatsFlags(args)
+	if msg != "" {
+		return t.usage(statsUsage, msg)
 	}
-	set := map[string]bool{}
-	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
-	if set["artifacts"] && *artifacts == "" {
-		return t.usage(statsUsage, "--artifacts must name a directory")
+	doc, err := computeStats(deps.Dir, days)
+	if err == nil {
+		err = attachArtifacts(deps.Dir, artifactsDir, &doc)
 	}
-	days, ok := parseDays(*since)
-	if !ok {
-		return t.usage(statsUsage, fmt.Sprintf("--since must be a number of days such as 30d, got %q", *since))
-	}
-	if *format != "text" && *format != "json" {
-		return t.usage(statsUsage, fmt.Sprintf("unknown --format %q", *format))
-	}
-
-	doc, err := computeStats(deps.Dir, days, *artifacts)
 	if err != nil {
 		return t.fail(exitUnverifiable, "intentgate stats: %v", err)
 	}
-	if *format == "json" {
+	if format == "json" {
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		enc.SetEscapeHTML(false)
@@ -97,6 +84,49 @@ func runStats(args []string, stdout io.Writer, deps Deps) int {
 	}
 	_, _ = io.WriteString(stdout, statsText(doc))
 	return exitOK
+}
+
+func parseStatsFlags(args []string) (days int, format, artifactsDir, msg string) {
+	fs := newFlags("stats")
+	since := fs.String("since", "30d", "")
+	fmtFlag := fs.String("format", "text", "")
+	artifacts := fs.String("artifacts", "", "")
+	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
+		return 0, "", "", "invalid arguments"
+	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if set["artifacts"] && *artifacts == "" {
+		return 0, "", "", "--artifacts must name a directory"
+	}
+	days, ok := parseDays(*since)
+	if !ok {
+		return 0, "", "", fmt.Sprintf("--since must be a number of days such as 30d, got %q", *since)
+	}
+	if *fmtFlag != "text" && *fmtFlag != "json" {
+		return 0, "", "", fmt.Sprintf("unknown --format %q", *fmtFlag)
+	}
+	return days, *fmtFlag, *artifacts, ""
+}
+
+func attachArtifacts(dir, artifactsDir string, doc *statsDoc) error {
+	if artifactsDir == "" {
+		return nil
+	}
+	start, err := time.Parse(time.RFC3339, doc.WindowStart)
+	if err != nil {
+		return err
+	}
+	end, err := time.Parse(time.RFC3339, doc.WindowEnd)
+	if err != nil {
+		return err
+	}
+	summary, err := readArtifactSummary(resolve(dir, artifactsDir), start, end)
+	if err != nil {
+		return err
+	}
+	doc.Artifacts = &summary
+	return nil
 }
 
 // parseDays reads "<N>d" with N a positive integer.
@@ -112,7 +142,7 @@ func parseDays(s string) (int, bool) {
 	return n, true
 }
 
-func computeStats(dir string, days int, artifactsDir string) (statsDoc, error) {
+func computeStats(dir string, days int) (statsDoc, error) {
 	headTime, err := gitx.CommitTime(dir, "HEAD")
 	if err != nil {
 		return statsDoc{}, err
@@ -197,33 +227,30 @@ func computeStats(dir string, days int, artifactsDir string) (statsDoc, error) {
 		m := durations[(len(durations)-1)/2] // the lower middle for an even count
 		doc.MedianReviewDurationMS = &m
 	}
-	if artifactsDir != "" {
-		summary, err := readArtifactSummary(resolve(dir, artifactsDir), start, headTime)
-		if err != nil {
-			return statsDoc{}, err
-		}
-		doc.Artifacts = &summary
-	}
 	return doc, nil
 }
 
 func readArtifactSummary(dir string, start, end time.Time) (audit.ArtifactSummary, error) {
-	info, err := os.Stat(dir)
+	clean := filepath.Clean(dir)
+	info, err := os.Lstat(clean)
 	if err != nil {
 		return audit.ArtifactSummary{}, err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return audit.ArtifactSummary{}, fmt.Errorf("%s is a symlink; pass the real directory", clean)
+	}
 	if !info.IsDir() {
-		return audit.ArtifactSummary{}, fmt.Errorf("%s is not a directory", dir)
+		return audit.ArtifactSummary{}, fmt.Errorf("%s is not a directory", clean)
 	}
 	var runs []audit.ArtifactRun
-	err = filepath.WalkDir(dir, func(path string, d os.DirEntry, werr error) error {
+	err = filepath.WalkDir(clean, func(path string, d os.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
 		}
 		if d.Name() != "audit.json" {
 			return nil
 		}
-		run, ok, err := loadArtifactPair(dir, path, start, end)
+		run, ok, err := loadArtifactPair(clean, path, start, end)
 		if err != nil {
 			return err
 		}
@@ -238,14 +265,43 @@ func readArtifactSummary(dir string, start, end time.Time) (audit.ArtifactSummar
 	return audit.SummarizeArtifacts(runs, start, end), nil
 }
 
-func loadArtifactPair(rootDir, auditPath string, start, end time.Time) (audit.ArtifactRun, bool, error) {
-	ab, err := readRegularBounded(auditPath, maxArtifactBytes)
+func readAuditEvent(path string) (audit.Event, error) {
+	ab, err := readRegularBounded(path, maxArtifactBytes)
 	if err != nil {
-		return audit.ArtifactRun{}, false, err
+		return audit.Event{}, err
 	}
 	var ev audit.Event
-	if err := json.Unmarshal(ab, &ev); err != nil || ev.Schema != audit.SchemaID {
-		return audit.ArtifactRun{}, false, fmt.Errorf("%s is not a %s event", auditPath, audit.SchemaID)
+	if err := json.Unmarshal(ab, &ev); err != nil {
+		return audit.Event{}, fmt.Errorf("%s: invalid JSON: %w", path, err)
+	}
+	if ev.Schema != audit.SchemaID {
+		return audit.Event{}, fmt.Errorf("%s is not an %s event", path, audit.SchemaID)
+	}
+	return ev, nil
+}
+
+func loadVerifyArtifact(auditPath string, ev audit.Event) (outcome string, findings, suspect int, err error) {
+	if ev.VerifySHA256 == "" {
+		return "", 0, 0, fmt.Errorf("%s has empty verify_sha256", auditPath)
+	}
+	if ev.Outcome == "" {
+		return "", 0, 0, fmt.Errorf("%s has empty outcome", auditPath)
+	}
+	verifyPath := filepath.Join(filepath.Dir(auditPath), "verify.json")
+	vb, err := readRegularBounded(verifyPath, maxArtifactBytes)
+	if err != nil {
+		return "", 0, 0, err
+	}
+	if sha256Hex(vb) != ev.VerifySHA256 {
+		return "", 0, 0, fmt.Errorf("%s does not match verify_sha256 in %s", verifyPath, auditPath)
+	}
+	return parseVerifyArtifact(verifyPath, vb, ev.Outcome)
+}
+
+func loadArtifactPair(rootDir, auditPath string, start, end time.Time) (audit.ArtifactRun, bool, error) {
+	ev, err := readAuditEvent(auditPath)
+	if err != nil {
+		return audit.ArtifactRun{}, false, err
 	}
 	if ev.Event != audit.EventVerify {
 		return audit.ArtifactRun{}, false, nil
@@ -257,15 +313,7 @@ func loadArtifactPair(rootDir, auditPath string, start, end time.Time) (audit.Ar
 	if ev.PR <= 0 || at.Before(start) || at.After(end) {
 		return audit.ArtifactRun{}, false, nil
 	}
-	verifyPath := filepath.Join(filepath.Dir(auditPath), "verify.json")
-	vb, err := readRegularBounded(verifyPath, maxArtifactBytes)
-	if err != nil {
-		return audit.ArtifactRun{}, false, err
-	}
-	if ev.VerifySHA256 != "" && sha256Hex(vb) != ev.VerifySHA256 {
-		return audit.ArtifactRun{}, false, fmt.Errorf("%s does not match verify_sha256 in %s", verifyPath, auditPath)
-	}
-	outcome, findingsCount, suspectLocks, err := parseVerifyArtifact(verifyPath, vb, ev.Outcome)
+	outcome, findingsCount, suspectLocks, err := loadVerifyArtifact(auditPath, ev)
 	if err != nil {
 		return audit.ArtifactRun{}, false, err
 	}
@@ -323,7 +371,7 @@ func parseVerifyArtifact(path string, vb []byte, wantOutcome string) (outcome st
 	if v.Schema != "intentgate.verify/1" || !validVerifyOutcome(v.Outcome) {
 		return "", 0, 0, fmt.Errorf("%s is not a valid intentgate.verify/1 document", path)
 	}
-	if wantOutcome != "" && v.Outcome != wantOutcome {
+	if v.Outcome != wantOutcome {
 		return "", 0, 0, fmt.Errorf("%s outcome %q does not match audit.json outcome %q", path, v.Outcome, wantOutcome)
 	}
 	for _, l := range v.Locks {
