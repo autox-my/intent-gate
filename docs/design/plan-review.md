@@ -21,6 +21,7 @@ Three lists of findings, each finding quoting the text it is about:
 **Rules that keep the noise down:**
 - **Later human turns override earlier ones.** If the human changed their mind during the discussion, the earlier request isn't an omission.
 - **Implied work is not an addition:** tests, docs, migrations and lockfile updates that follow from the plan.
+- **One kind per quote (cross-kind deduplication):** when the same non-empty quote (compared after collapsing whitespace and lowercasing) is flagged under multiple kinds — for example Jev flagging one dropped or weakened root-intent item as both `omission` and `weakening` — keep only the kind with the highest confidence (ties break `omission` > `weakening` > `addition`; NaN loses to any finite confidence). Distinct findings of that winning kind on the same quote are preserved; findings with empty quotes are never merged. Deduplication runs before counting (`Result.Counts` and the lock's `plan_review` counts reflect deduplicated findings).
 - Show at most 5 findings per kind, ordered by the model's confidence; the rest are counted ("+3 more").
 
 ## 2. Provider interface
