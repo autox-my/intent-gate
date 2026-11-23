@@ -87,15 +87,15 @@ const (
 func TestJev_MapsAnswersToFindings(t *testing.T) {
 	f := newFakeJev(t, func([]string) map[string]any {
 		return map[string]any{
-			"omit_0": 0.1,  // omission, confidence 0.9
-			"omit_1": 0.3,  // exactly the threshold: no finding
-			"omit_2": -0.2, // out of range: skipped, not a finding
-			"weak_0": 0.7,  // exactly the threshold: no finding
-			"weak_1": 0.85, // weakening, confidence 0.85
-			"weak_2": 1.5,  // out of range: skipped
-			"add_0":  nil,  // missing: skipped
-			"add_1":  0.05, // addition, confidence 0.95
-			"add_2":  0.3,  // exactly the threshold: no finding
+			"omit_0": 0.1,     // omission, confidence 0.9
+			"omit_1": omitMax, // exactly the threshold: no finding
+			"omit_2": -0.2,    // out of range: skipped, not a finding
+			"weak_0": weakMin, // exactly the threshold: no finding
+			"weak_1": 0.92,    // weakening, confidence 0.92
+			"weak_2": 1.5,     // out of range: skipped
+			"add_0":  nil,     // missing: skipped
+			"add_1":  0.05,    // addition, confidence 0.95
+			"add_2":  addMax,  // exactly the threshold: no finding
 		}
 	})
 	got, err := f.jev().Review(context.Background(), rootIntent, plan)
@@ -104,7 +104,7 @@ func TestJev_MapsAnswersToFindings(t *testing.T) {
 	}
 	want := []Finding{
 		{Kind: Omission, Quote: "Add SARIF output to the report command.", Confidence: 0.9},
-		{Kind: Weakening, Quote: "Keep the report under one page.", Confidence: 0.85},
+		{Kind: Weakening, Quote: "Keep the report under one page.", Confidence: 0.92},
 		{Kind: Addition, Quote: "Rewrite the whole CLI in Rust.", Confidence: 0.95},
 	}
 	if len(got) != len(want) {
@@ -781,7 +781,7 @@ func TestJev_DedupeCrossKind(t *testing.T) {
 	f := newFakeJev(t, func([]string) map[string]any {
 		return map[string]any{
 			"omit_0": 0.05, // omission 0.95 ...
-			"weak_0": 0.85, // ... and weakening 0.85 on r0: omission wins
+			"weak_0": 0.88, // ... and weakening 0.88 on r0: omission wins
 			"omit_1": 0.09, // omission 0.91 ...
 			"weak_1": 0.99, // ... and weakening 0.99 on r1: weakening wins
 			"omit_2": 0.10, // omission 0.90 ...

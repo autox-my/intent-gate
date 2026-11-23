@@ -166,10 +166,10 @@ artifacts:
     state: covered
     paths: ["scripts/check.sh", "action/action.yml", "action/fetch.sh", ".github/workflows/check.yml", ".github/workflows/release.yml"]
   - playbook: "closing the loop"
-    build: "Handoffs, coverage explorer."
+    build: "Handoffs, coverage explorer, `eval/` Jev calibration harness."
     product: "Audit events, `intentgate stats` (amendment rate, merged PRs, lock coverage, findings per PR from CI artifacts)."
     state: partial
-    paths: ["docs/handoffs/*", "scripts/coverage-explorer.py"]
+    paths: ["docs/handoffs/*", "scripts/coverage-explorer.py", "eval/pyproject.toml", "eval/datasets/plan_review.jsonl"]
     commands: ["stats"]
 
 # The product loop for one change: lanes are the participants, steps the messages in order.

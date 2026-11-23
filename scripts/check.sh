@@ -44,6 +44,11 @@ if need python3; then
   step "adr status" sh -c 'python3 -I scripts/adr_status_test.py && python3 -I scripts/adr_status.py'
 fi
 
+# Offline eval harness (eval/, ADR 0001): stdlib-only unit tests and dataset integrity checks.
+if need python3; then
+  step "eval tests" python3 -I -m unittest discover -s eval/tests -t eval
+fi
+
 if need req; then
   step "req canon" req canon --fail-on-flag
   step "req satisfy" req satisfy
