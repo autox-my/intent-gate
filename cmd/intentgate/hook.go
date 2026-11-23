@@ -68,7 +68,7 @@ const (
 	exitPlanMode    = "ExitPlanMode"
 	askUserQuestion = "AskUserQuestion"
 	pendingTTL      = 24 * time.Hour
-	usage           = "usage: intentgate hook claude-code pre|post|print-config\nusage: intentgate hook claude-code ratify-question <plan path>\n" + lockUsage + amendUsage + verifyUsage + acceptanceUsage + publishUsage + statsUsage + initUsage
+	usage           = "usage: intentgate hook claude-code pre|post|print-config\nusage: intentgate hook claude-code ratify-question <plan path>\nusage: intentgate hook antigravity pre|post-invocation|print-config\nusage: intentgate hook antigravity ratify-question <plan path>\n" + lockUsage + amendUsage + verifyUsage + acceptanceUsage + publishUsage + statsUsage + initUsage
 )
 
 // Run executes the intentgate command line (hook, lock, amend, verify) and returns the exit code. `hook claude-code pre|post`
@@ -98,7 +98,13 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, deps Deps) int {
 			return runInit(args[1:], stdout, deps)
 		}
 	}
-	if len(args) < 3 || args[0] != "hook" || args[1] != "claude-code" {
+	if len(args) < 3 || args[0] != "hook" {
+		return usageError(deps)
+	}
+	if args[1] == "antigravity" {
+		return runAntigravityHookCmd(args[2:], stdin, stdout, deps)
+	}
+	if args[1] != "claude-code" {
 		return usageError(deps)
 	}
 	switch args[2] {

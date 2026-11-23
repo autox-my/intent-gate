@@ -30,9 +30,9 @@ const (
 )
 
 var (
-	methods  = []string{"hook", "cli-confirm", "issue"}                                     // REQ-0011
-	sources  = []string{"claude-code-session", "issue", "plan-file", SourceCommittedIntent} //
-	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)                          // 26-char Crockford base32, 128 bits
+	methods  = []string{"hook", "cli-confirm", "issue"}                                                            // REQ-0011
+	sources  = []string{"claude-code-session", "antigravity-session", "issue", "plan-file", SourceCommittedIntent} //
+	ulidRE   = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)                                                 // 26-char Crockford base32, 128 bits
 	sha256RE = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 	intentPathRE = regexp.MustCompile(`^intents/[a-z0-9][a-z0-9-]*\.md$`) // intent-lock.md §6

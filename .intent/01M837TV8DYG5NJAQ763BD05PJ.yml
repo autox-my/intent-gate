@@ -1,0 +1,35 @@
+schema: intentgate.lock/1
+id: 01M837TV8DYG5NJAQ763BD05PJ
+revision: 1
+base_ref: main
+root_intent:
+  sha256: 48bbed95d131d1fd735745331ed169cbc0f86e1d866eb2c0c7b9a00fb0a2129e
+  source: plan-file
+  redactions: 0
+criteria:
+  - id: C1
+    text: 'REQ-0002: Antigravity hook (PreToolUse ask_question + PostInvocation) writes an intent lock on Ratify, scopes root intent across turns, and records source antigravity-session'
+    footprint:
+      - internal/hooks/antigravity/**
+      - internal/lock/**
+      - schema/intentgate.lock.v1.json
+      - cmd/intentgate/**
+      - claims/REQ-0002.yml
+  - id: C2
+    text: intentgate init --agent antigravity configures .agents/hooks.json idempotently and the SDLC process map stays green
+    footprint:
+      - cmd/intentgate/**
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-23T03:40:12Z"
+  method: cli-confirm
+  review_duration_ms: 7000
+plan_review:
+  status: complete
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:bb031a1a4b262f954bbb512d36d13781c0ed051e9c98af8ea4d1f84a32ce1b0e

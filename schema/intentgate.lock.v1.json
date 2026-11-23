@@ -21,7 +21,7 @@
       "required": ["sha256", "source", "redactions"],
       "properties": {
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "source": { "enum": ["claude-code-session", "issue", "plan-file", "committed-intent"] },
+        "source": { "enum": ["claude-code-session", "antigravity-session", "issue", "plan-file", "committed-intent"] },
         "redactions": { "description": "Secrets masked in the root intent before it was hashed (REQ-0015). Always 0 for a committed intent: its text is public by the team's choice.", "type": "integer", "minimum": 0 },
         "path": { "description": "The committed intent file (REQ-0044). Present iff source is committed-intent.", "type": "string", "pattern": "^intents/[a-z0-9][a-z0-9-]*\\.md$" },
         "blob": { "description": "The git blob id of the committed intent file at HEAD, 40 or 64 lower-case hex characters (REQ-0044). Present iff source is committed-intent.", "type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$" }

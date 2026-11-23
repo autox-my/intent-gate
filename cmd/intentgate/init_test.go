@@ -604,3 +604,100 @@ func TestInit_NewHookEntryKeyOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestInit_Antigravity(t *testing.T) {
+	t.Run("fresh repo creates .agents/hooks.json, AGENTS.md, .intentgate.yml and re-run is unchanged", func(t *testing.T) {
+		r := newVRepo(t)
+		code, out, errs := initRun(t, r.dir, "--agent", "antigravity")
+		if code != 0 {
+			t.Fatalf("exit %d; stderr: %s", code, errs)
+		}
+		if r.exists(".claude") {
+			t.Error("--agent antigravity wrote .claude/")
+		}
+		for _, p := range []string{".agents/hooks.json", "AGENTS.md", ".intentgate.yml"} {
+			if !lineWith(out, "created", p) {
+				t.Errorf("no `created %s` line in:\n%s", p, out)
+			}
+		}
+		if !strings.Contains(out, "next: ") || !strings.Contains(out, "Antigravity") {
+			t.Errorf("next line missing Antigravity hint:\n%s", out)
+		}
+		agents := r.read("AGENTS.md")
+		if !strings.Contains(agents, "ratify-question") || !strings.Contains(agents, "ask_question") || strings.Contains(agents, "Start work in plan mode") {
+			t.Errorf("Antigravity instructions wrong:\n%s", agents)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(r.read(".agents/hooks.json")), &doc); err != nil {
+			t.Fatalf("invalid .agents/hooks.json: %v", err)
+		}
+		if _, ok := doc["intentgate"].(map[string]any); !ok {
+			t.Fatalf("missing intentgate key: %v", doc)
+		}
+
+		before := r.read(".agents/hooks.json")
+		code, out, errs = initRun(t, r.dir, "--agent", "antigravity")
+		if code != 0 || r.read(".agents/hooks.json") != before || !lineWith(out, "unchanged", ".agents/hooks.json") || !lineWith(out, "unchanged", "AGENTS.md") || !lineWith(out, "kept", ".intentgate.yml") {
+			t.Errorf("second run: exit %d (%s), out:\n%s", code, errs, out)
+		}
+	})
+
+	t.Run("merges into existing .agents/hooks.json preserving other hooks and enabled flag", func(t *testing.T) {
+		r := newVRepo(t)
+		r.write(".agents/hooks.json", `{
+  "lint-checker": {"PostToolUse": [{"matcher": "run_command", "hooks": [{"type": "command", "command": "./lint.sh"}]}]},
+  "intentgate": {"enabled": false, "PreToolUse": [{"matcher": "ask_question", "hooks": [{"type": "command", "command": "intentgate hook antigravity pre", "timeout": 60}]}]}
+}
+`)
+		if code, out, errs := initRun(t, r.dir, "--agent", "antigravity"); code != 0 || !lineWith(out, "updated", ".agents/hooks.json") {
+			t.Fatalf("exit %d (%s), out:\n%s", code, errs, out)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(r.read(".agents/hooks.json")), &doc); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := doc["lint-checker"]; !ok {
+			t.Errorf("lint-checker hook lost: %v", doc)
+		}
+		ig, _ := doc["intentgate"].(map[string]any)
+		if ig["enabled"] != false {
+			t.Errorf("enabled = %v, want false preserved", ig["enabled"])
+		}
+		if pre, _ := ig["PreToolUse"].([]any); len(pre) != 1 {
+			t.Errorf("PreToolUse = %v, want 1 entry", pre)
+		}
+		if postInv, _ := ig["PostInvocation"].([]any); len(postInv) != 1 {
+			t.Errorf("PostInvocation = %v, want 1 entry", postInv)
+		}
+	})
+
+	t.Run("invalid .agents/hooks.json exits 3 leaving all files untouched", func(t *testing.T) {
+		for _, body := range []string{
+			"{not json",
+			`{"intentgate": "not-an-object"}`,
+			`{"intentgate": {"PreToolUse": "not-an-array"}}`,
+			`{"intentgate": {"PostInvocation": {}}}`,
+		} {
+			r := newVRepo(t)
+			r.write(".agents/hooks.json", body)
+			code, out, errs := initRun(t, r.dir, "--agent", "antigravity")
+			if code != 3 || out != "" || errs == "" {
+				t.Errorf("%q: exit %d, out=%q, errs=%q; want 3", body, code, out, errs)
+			}
+			if r.read(".agents/hooks.json") != body || r.exists("AGENTS.md") || r.exists(".intentgate.yml") {
+				t.Errorf("%q: files changed on error", body)
+			}
+		}
+	})
+
+	t.Run("dry-run writes nothing", func(t *testing.T) {
+		r := newVRepo(t)
+		code, out, errs := initRun(t, r.dir, "--agent", "antigravity", "--dry-run")
+		if code != 0 || !lineWith(out, "created", ".agents/hooks.json") {
+			t.Fatalf("exit %d (%s), out:\n%s", code, errs, out)
+		}
+		if r.exists(".agents") || r.exists("AGENTS.md") || r.exists(".intentgate.yml") {
+			t.Error("--dry-run wrote files")
+		}
+	})
+}

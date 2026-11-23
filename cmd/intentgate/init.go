@@ -22,11 +22,12 @@ import (
 // (nothing is written then).
 
 const (
-	initUsage = "usage: intentgate init [--agent claude-code|generic] [--dry-run]\n"
+	initUsage = "usage: intentgate init [--agent claude-code|antigravity|generic] [--dry-run]\n"
 
-	settingsPath = ".claude/settings.json"
-	configPath   = ".intentgate.yml"
-	configBody   = "version: 1\n"
+	settingsPath         = ".claude/settings.json"
+	antigravityHooksPath = ".agents/hooks.json"
+	configPath           = ".intentgate.yml"
+	configBody           = "version: 1\n"
 
 	sectionBegin = "<!-- intentgate:begin -->"
 	sectionEnd   = "<!-- intentgate:end -->"
@@ -52,7 +53,7 @@ func runInit(args []string, stdout io.Writer, deps Deps) int {
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return t.usage(initUsage, "")
 	}
-	if *agent != "claude-code" && *agent != "generic" {
+	if *agent != "claude-code" && *agent != "antigravity" && *agent != "generic" {
 		return t.usage(initUsage, fmt.Sprintf("unknown --agent %q", *agent))
 	}
 	top, err := gitx.TopLevel(deps.Dir)
@@ -69,8 +70,15 @@ func runInit(args []string, stdout io.Writer, deps Deps) int {
 		plan = append(plan, f)
 		return true
 	}
-	if *agent == "claude-code" && !add(planSettings(top)) {
-		return exitUnverifiable
+	switch *agent {
+	case "claude-code":
+		if !add(planSettings(top)) {
+			return exitUnverifiable
+		}
+	case "antigravity":
+		if !add(planAntigravityHooks(top)) {
+			return exitUnverifiable
+		}
 	}
 	if !add(planInstructions(top, *agent)) || !add(planConfig(top)) {
 		return exitUnverifiable
@@ -197,10 +205,14 @@ func replaceFile(path string, data []byte, mode os.FileMode) error {
 }
 
 func nextStep(agent string) string {
-	if agent == "generic" {
+	switch agent {
+	case "generic":
 		return "have the agent write its plan to a file, then run `intentgate lock --from-plan <file>` before it changes code."
+	case "antigravity":
+		return "start Antigravity in this repository; ask the ratify card with `intentgate hook antigravity ratify-question <file>` and `ask_question`, and ratifying writes the intent lock via .agents/hooks.json."
+	default:
+		return "start Claude Code in this repository; it opens in plan mode, and approving a plan writes the intent lock."
 	}
-	return "start Claude Code in this repository; it opens in plan mode, and approving a plan writes the intent lock."
 }
 
 // readExisting returns the file's bytes, or exists=false if there is no such file. target is the
@@ -420,7 +432,10 @@ func matcherCovers(matcher, tool string) bool {
 }
 
 func isIntentgateHook(command, which string) bool {
-	want := []string{"intentgate", "hook", "claude-code", which}
+	return isHookCommand(command, "intentgate", "hook", "claude-code", which)
+}
+
+func isHookCommand(command string, want ...string) bool {
 	f := strings.Fields(command)
 	for i := 0; i+len(want) <= len(f); i++ {
 		// The binary may be given as a path (/usr/local/bin/intentgate).
@@ -545,8 +560,11 @@ func fencedRanges(text string) [][2]int {
 // instructionsSection is the text between the markers, markers included, without a trailing newline.
 func instructionsSection(agent string) string {
 	mode := "Start work in plan mode; approving the plan writes the intent lock."
-	if agent == "generic" {
+	switch agent {
+	case "generic":
 		mode = "Write the plan to a file, then ask the human to run `intentgate lock --from-plan <file>` before you change code."
+	case "antigravity":
+		mode = "Write your plan (ending in that block) to a file, run `intentgate hook antigravity ratify-question <file>`, and ask that exact question with `ask_question`; choosing `Ratify` writes the intent lock."
 	}
 	return sectionBegin + "\n" +
 		"## IntentGate\n\n" +
