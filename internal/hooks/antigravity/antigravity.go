@@ -299,6 +299,9 @@ func RootIntentScope(transcript []byte, currentStepIdx int) (Scope, error) {
 		if hasStep {
 			stepIdx = *e.StepIndex
 		}
+		if hasStep && stepIdx >= currentStepIdx {
+			continue
+		}
 		switch e.Type {
 		case "USER_INPUT":
 			closePending()

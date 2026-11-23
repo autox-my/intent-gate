@@ -110,9 +110,11 @@ func agyCheckPlan(cwd, artifactDir, cardPath, wantSHA string, deps Deps) (string
 	_, inRepo := within(top, path)
 	inArt := false
 	if artifactDir != "" && filepath.IsAbs(artifactDir) {
-		cleanArt := filepath.Clean(artifactDir)
-		if cleanArt != filepath.Dir(cleanArt) { // refuse filesystem root
-			_, inArt = within(cleanArt, path)
+		if resolvedArt, err := filepath.EvalSymlinks(artifactDir); err == nil {
+			cleanArt := filepath.Clean(resolvedArt)
+			if cleanArt != filepath.Dir(cleanArt) { // refuse filesystem root (including via symlink)
+				_, inArt = within(cleanArt, path)
+			}
 		}
 	}
 	if !inRepo && !inArt {
@@ -251,13 +253,12 @@ func agyPostInvocation(stdin io.Reader, deps Deps) antigravity.PostInvocationOut
 	}
 
 	tdata, tErr := os.ReadFile(in.TranscriptPath)
+	if tErr != nil {
+		return antigravity.PostInvocationOutput{}
+	}
 	var msgs []string
 	for _, it := range items {
-		var ans string
-		var found, done bool
-		if tErr == nil {
-			ans, found, done = antigravity.StepAnswer(tdata, it.rec.StepIdx)
-		}
+		ans, found, done := antigravity.StepAnswer(tdata, it.rec.StepIdx)
 		if !found {
 			if in.InitialNumSteps != nil && it.rec.StepIdx < *in.InitialNumSteps {
 				_ = os.Remove(it.path)

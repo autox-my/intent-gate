@@ -368,6 +368,52 @@ func TestRootIntentScope(t *testing.T) {
 		}
 	})
 
+	t.Run("two ratify cards in one planner step ignore later follow-up turn", func(t *testing.T) {
+		twoCards, _ := json.Marshal(map[string]any{
+			"step_index": 1,
+			"source":     "MODEL",
+			"type":       "PLANNER_RESPONSE",
+			"status":     "DONE",
+			"model":      "gemini-pro-orchestrator-neon",
+			"tool_calls": []any{
+				map[string]any{"name": "ask_question", "args": map[string]any{"questions": []any{map[string]any{
+					"question": q1, "options": []string{"Ratify", "Not yet"}, "is_multi_select": false,
+				}}}},
+				map[string]any{"name": "ask_question", "args": map[string]any{"questions": []any{map[string]any{
+					"question": q2, "options": []string{"Ratify", "Not yet"}, "is_multi_select": false,
+				}}}},
+			},
+		})
+		lines := []string{
+			userInputLine(0, "USER_EXPLICIT", "First ask"),
+			string(twoCards),
+			genericStepLine(2, "DONE", "A1: Ratify"),
+			userInputLine(3, "USER_EXPLICIT", "Follow-up"),
+		}
+		sc, err := RootIntentScope([]byte(strings.Join(lines, "\n")+"\n"), 2)
+		if err != nil {
+			t.Fatalf("RootIntentScope: %v", err)
+		}
+		if sc.Text != "First ask" || sc.Turns != 1 || sc.Kind != ScopeWhole {
+			t.Errorf("got %+v, want ScopeWhole 'First ask'", sc)
+		}
+	})
+
+	t.Run("in-flight card followed by later USER_INPUT at currentStepIdx is not a boundary", func(t *testing.T) {
+		lines := []string{
+			userInputLine(0, "USER_EXPLICIT", "First ask"),
+			cardJSONLine(1, q1),
+			userInputLine(2, "USER_EXPLICIT", "Clarification"),
+		}
+		sc, err := RootIntentScope([]byte(strings.Join(lines, "\n")+"\n"), 2)
+		if err != nil {
+			t.Fatalf("RootIntentScope: %v", err)
+		}
+		if sc.Text != "First ask" || sc.Turns != 1 || sc.Kind != ScopeWhole {
+			t.Errorf("got %+v, want ScopeWhole 'First ask'", sc)
+		}
+	})
+
 	t.Run("malformed JSONL line returns error", func(t *testing.T) {
 		if _, err := RootIntentScope([]byte("{not json\n"), 1); err == nil {
 			t.Error("expected error for malformed JSONL")

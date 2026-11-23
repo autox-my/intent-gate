@@ -436,6 +436,25 @@ func TestAntigravityHook_RatifyCardWritesLock(t *testing.T) {
 			t.Errorf("post-invocation extra: exit %d, %q", code, extraOut.String())
 		}
 	})
+
+	t.Run("symlink artifactDirectoryPath to root is refused", func(t *testing.T) {
+		a := newAgyEnv(t)
+		rootLink := filepath.Join(t.TempDir(), "rootlink")
+		if err := os.Symlink("/", rootLink); err != nil {
+			t.Skipf("no symlinks: %v", err)
+		}
+		a.artDir = rootLink
+		outside := filepath.Join(t.TempDir(), "plan.md")
+		writeFile(t, outside, planText)
+		q := agyCardQuestion(outside, planText)
+		a.runHook("pre", a.preInput(4, "ask_question", agyCardQuestions(q)))
+		appendTranscript(t, a, agyGenericLine(4, "DONE", "A1: Ratify"))
+		_, obj := a.runHook("post-invocation", a.postInvInput(2, 3))
+		if msg := injectMessage(t, obj); !strings.Contains(msg, "plan path outside the repo and the artifact directory") {
+			t.Errorf("got %q", msg)
+		}
+		a.nothingWritten()
+	})
 }
 
 func TestAntigravityHook_PostInvocationStalePending(t *testing.T) {
@@ -459,4 +478,20 @@ func TestAntigravityHook_PostInvocationStalePending(t *testing.T) {
 	if len(left) != 1 || filepath.Base(left[0]) != "step-6.json" {
 		t.Errorf("pending left = %v, want only step-6.json", left)
 	}
+
+	t.Run("unreadable transcript keeps stale pending record", func(t *testing.T) {
+		a := newAgyEnv(t)
+		writeFile(t, filepath.Join(a.repo, "docs", "plan.md"), planText)
+		q := agyCardQuestion("docs/plan.md", planText)
+		a.runHook("pre", a.preInput(4, "ask_question", agyCardQuestions(q)))
+		a.tpath = filepath.Join(t.TempDir(), "missing-transcript.jsonl")
+		code, obj := a.runHook("post-invocation", a.postInvInput(3, 5))
+		if code != 0 || len(obj) != 0 {
+			t.Errorf("exit %d, %v; want {}", code, obj)
+		}
+		left := a.pendingFiles()
+		if len(left) != 1 || filepath.Base(left[0]) != "step-4.json" {
+			t.Errorf("pending left = %v, want step-4.json kept", left)
+		}
+	})
 }
