@@ -1,0 +1,29 @@
+schema: intentgate.lock/1
+id: 01M84Q6VHBJB090X24K9NK9RJ7
+revision: 1
+base_ref: main
+root_intent:
+  sha256: b1d3b139863c3e8eb9d47925f683c4527526e3f0054d2a9131fafe635caaadd5
+  source: antigravity-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: intentgate stats --artifacts <dir> computes offline, deterministic per-PR findings metrics from downloaded audit.json + verify.json artifacts (verifying verify_sha256, collapsing to latest run per PR, excluding skipped/no-lock from locked-PR rates) with pure aggregation in internal/audit
+    footprint:
+      - internal/audit/**
+      - cmd/intentgate/**
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-23T17:28:09Z"
+  method: hook
+  review_duration_ms: 7842
+  drafted_by: antigravity/gemini-flash-worker-agy
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:e02cbb96f4593359cd571f9bd1b105d31836a0855595b86f0298498bf4964388
