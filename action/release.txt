@@ -10,6 +10,6 @@
 # Then re-pin the Action's commit SHA in the workflows that use it: pinning the commit pins the
 # binary's hash. With no `version` line the Action falls back to building from source.
 
-version v0.2.0
-396b4f8216a7b828f573ac15f89c617391db99ece64dc4bec67318f4299564e9  intentgate_v0.2.0_linux_amd64
-87b9305d91916832172a7d3f6308de621d2262ed64408df0608c03a9e8777dae  intentgate_v0.2.0_linux_arm64
+version v0.3.0
+c6c9d3e1ed72018f4e91c0772604c03e36ca6b69ec50b78d6dd0d9c6c276dcc0  intentgate_v0.3.0_linux_amd64
+0629d5c6c784f1477d704a665d69a14198a6c6e347c098470b3f709c33c76682  intentgate_v0.3.0_linux_arm64
