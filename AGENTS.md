@@ -58,14 +58,14 @@ Specs of merged slices are history, not current documentation: for what holds no
 
 Follow the setup that matches the active harness:
 
-- **Antigravity (native Orchestrator):** planner and executor share one conversation (`antigravity` / `gemini-pro-orchestrator-neon`: Gemini 4 Neon plans and reviews handbacks; Gemini 4 Hydrogen executes inside the slice's worktree). Read-only review uses an available Antigravity model — prefer a different family from Hydrogen (`antigravity` / `claude-sonnet-5-5` or `claude-opus-5-5`), or Neon reviewing Hydrogen's work directly.
+- **Antigravity (native Orchestrator):** planner and executor share one conversation (`antigravity` / `gemini-pro-orchestrator-neon`: Gemini 4 Neon plans and reviews handbacks; Gemini 4 Hydrogen executes inside the slice's worktree). Read-only review uses Neon reviewing Hydrogen's work directly or `antigravity` / `gemini-4-argon`.
 - **Non-Antigravity (previous setup):** separate orchestrator, delegated worktree worker, and cross-family reviewer.
 
 | Role | Who | Antigravity (native) | Non-Antigravity |
 |---|---|---|---|
 | Orchestrator | writes specs, plans, checks branches, keeps the summary | `antigravity` / `gemini-pro-orchestrator-neon` (Neon planner) | Claude Opus 5.5 |
 | Worker / Executor | writes tests (red first) then code in the slice's worktree | Hydrogen executor (same conversation, in slice worktree) | `claudeAgent` / `claude-sonnet-5-5` (dedicated worktree) |
-| Reviewer | read-only review before PR | `antigravity` / `claude-sonnet-5-5` (or `claude-opus-5-5`, or Neon reviewing Hydrogen) | `opencode` / `opencode-go/gemini-4-argon` (fallback: `opencode-go/deepseek-v4.1-flash`) |
+| Reviewer | read-only review before PR | Neon reviewing Hydrogen, or `antigravity` / `gemini-4-argon` | `opencode` / `opencode-go/gemini-4-argon` (fallback: `opencode-go/deepseek-v4.1-flash`) |
 | Human | ratifies claims and links, reviews, merges | — | — |
 
 ### The flow for one slice
