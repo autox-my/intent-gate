@@ -775,3 +775,54 @@ func TestJev_Live(t *testing.T) {
 		})
 	}
 }
+
+// REQ-0016, REQ-0017, REQ-0018: a dropped or weakened requirement is one finding, not two (S-27).
+func TestJev_DedupeCrossKind(t *testing.T) {
+	f := newFakeJev(t, func([]string) map[string]any {
+		return map[string]any{
+			"omit_0": 0.05, // omission 0.95 ...
+			"weak_0": 0.85, // ... and weakening 0.85 on r0: omission wins
+			"omit_1": 0.09, // omission 0.91 ...
+			"weak_1": 0.99, // ... and weakening 0.99 on r1: weakening wins
+			"omit_2": 0.10, // omission 0.90 ...
+			"weak_2": 0.90, // ... and weakening 0.90 on r2: the tie goes to omission
+			"add_1":  0.05, // addition 0.95 on a plan item: untouched
+		}
+	})
+	want := map[string]Finding{
+		"Add SARIF output to the report command.": {Kind: Omission, Confidence: 0.95},
+		"Keep the report under one page.":         {Kind: Weakening, Confidence: 0.99},
+		"Never block a merge ever.":               {Kind: Omission, Confidence: 0.90},
+		"Rewrite the whole CLI in Rust.":          {Kind: Addition, Confidence: 0.95},
+	}
+	wantCounts := Counts{Omissions: 2, Additions: 1, Weakenings: 1}
+	verify := func(t *testing.T, got []Finding, label string) {
+		t.Helper()
+		if len(got) != len(want) {
+			t.Fatalf("%s: findings = %+v, want exactly %d", label, got, len(want))
+		}
+		for _, g := range got {
+			w, ok := want[g.Quote]
+			if !ok {
+				t.Errorf("%s: unexpected finding %+v", label, g)
+				continue
+			}
+			if g.Kind != w.Kind || math.Abs(g.Confidence-w.Confidence) > 1e-9 {
+				t.Errorf("%s: %q = %s %v, want %s %v", label, g.Quote, g.Kind, g.Confidence, w.Kind, w.Confidence)
+			}
+		}
+	}
+	got, err := f.jev().Review(context.Background(), rootIntent, plan)
+	if err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	verify(t, got, "Review")
+	res := Run(context.Background(), f.jev(), rootIntent, plan, 2*time.Second)
+	if res.Status != Complete {
+		t.Fatalf("Run status = %q, want complete", res.Status)
+	}
+	verify(t, res.Findings, "Run")
+	if res.Counts != wantCounts {
+		t.Errorf("Run counts = %+v, want %+v", res.Counts, wantCounts)
+	}
+}
