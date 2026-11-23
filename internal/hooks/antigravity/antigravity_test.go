@@ -222,6 +222,7 @@ func TestStepAnswer_AndRatified(t *testing.T) {
 		genericStepLine(15, "DONE", "A1: Ratify later"),
 		genericStepLine(16, "DONE", "A1: Ratify?"),
 		genericStepLine(17, "RUNNING", "A1: Ratify"),
+		userInputLine(18, "USER_EXPLICIT", "A1: Ratify"),
 	}, "\n") + "\n"
 
 	for _, tc := range []struct {
@@ -239,6 +240,7 @@ func TestStepAnswer_AndRatified(t *testing.T) {
 		{15, "Ratify later", true, true, false},
 		{16, "Ratify?", true, true, false},
 		{17, "Ratify", true, false, true},
+		{18, "", false, false, false},
 		{99, "", false, false, false},
 	} {
 		ans, found, done := StepAnswer([]byte(transcript), tc.step)
@@ -333,6 +335,36 @@ func TestRootIntentScope(t *testing.T) {
 		}
 		if sc.Text != "New ask" || sc.Turns != 1 || sc.Kind != ScopeSince {
 			t.Errorf("got %+v, want 'New ask'", sc)
+		}
+	})
+
+	t.Run("parallel tool call with in-flight card in PreToolUse is not a prior boundary", func(t *testing.T) {
+		multi, _ := json.Marshal(map[string]any{
+			"step_index": 3,
+			"source":     "MODEL",
+			"type":       "PLANNER_RESPONSE",
+			"status":     "DONE",
+			"model":      "gemini-pro-orchestrator-neon",
+			"tool_calls": []any{
+				map[string]any{"name": "read_file", "args": map[string]any{"Path": "go.mod"}},
+				map[string]any{"name": "ask_question", "args": map[string]any{"questions": []any{map[string]any{
+					"question": q2, "options": []string{"Ratify", "Not yet"}, "is_multi_select": false,
+				}}}},
+			},
+		})
+		lines := []string{
+			userInputLine(0, "USER_EXPLICIT", "First ask"),
+			cardJSONLine(1, q1),
+			genericStepLine(2, "DONE", "A1: Ratify"),
+			string(multi),
+			genericStepLine(4, "DONE", "read_file output"),
+		}
+		sc, err := RootIntentScope([]byte(strings.Join(lines, "\n")+"\n"), 5)
+		if err != nil {
+			t.Fatalf("RootIntentScope: %v", err)
+		}
+		if sc.Text != "First ask" || sc.Turns != 1 || sc.Kind != ScopeReused {
+			t.Errorf("got %+v, want reused 'First ask'", sc)
 		}
 	})
 

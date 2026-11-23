@@ -43,7 +43,7 @@ entries:
     detail: "lock · PR check · release"
     feeds: review
     paths: ["action/action.yml", "action/fetch.sh", ".github/workflows/release.yml"]
-    commands: ["hook claude-code print-config", "hook claude-code ratify-question", "lock --from-plan", "verify"]
+    commands: ["hook claude-code print-config", "hook claude-code ratify-question", "hook antigravity pre", "hook antigravity post-invocation", "hook antigravity ratify-question", "hook antigravity print-config", "lock --from-plan", "verify"]
 
 # The pipeline, left to right.
 stages:

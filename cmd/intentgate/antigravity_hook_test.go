@@ -443,8 +443,8 @@ func TestAntigravityHook_PostInvocationStalePending(t *testing.T) {
 	writeFile(t, filepath.Join(a.repo, "docs", "plan.md"), planText)
 	q := agyCardQuestion("docs/plan.md", planText)
 
-	// Step 2 (< initialNumSteps=5) is absent from transcript -> pruned quietly.
-	a.runHook("pre", a.preInput(2, "ask_question", agyCardQuestions(q)))
+	// Step 4 (< initialNumSteps=5) is absent from transcript -> pruned quietly.
+	a.runHook("pre", a.preInput(4, "ask_question", agyCardQuestions(q)))
 	// Step 6 (>= initialNumSteps=5) is absent from transcript -> kept.
 	a.runHook("pre", a.preInput(6, "ask_question", agyCardQuestions(q)))
 	if len(a.pendingFiles()) != 2 {
