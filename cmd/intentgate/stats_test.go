@@ -3,11 +3,14 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/autox-my/intent-gate/internal/audit"
 	"github.com/autox-my/intent-gate/internal/lock"
 	"github.com/autox-my/intent-gate/internal/ratify"
 )
@@ -420,5 +423,361 @@ func TestStats_MergedPRCoverage(t *testing.T) {
 			}
 		}
 		t.Errorf("no amendment-rate line in:\n%s", text)
+	})
+}
+
+type artifactsOut struct {
+	Runs                int    `json:"runs"`
+	PRs                 int    `json:"prs"`
+	PRsWithLock         int    `json:"prs_with_lock"`
+	PRsWithFindings     int    `json:"prs_with_findings"`
+	FindingsPRRate      string `json:"findings_pr_rate"`
+	FindingsPRRatio     string `json:"findings_pr_ratio"`
+	TotalFindings       int    `json:"total_findings"`
+	FindingsPerPR       string `json:"findings_per_pr"`
+	MedianFindingsPerPR *int   `json:"median_findings_per_pr"`
+	PRsWithSuspectLock  int    `json:"prs_with_suspect_lock"`
+}
+
+func writeArtifactPair(t *testing.T, dir, repo string, pr int, at, headSHA, outcome string, findings int, suspect []string, locksExtra int) (auditPath, verifyPath string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var fs []map[string]any
+	for i := 0; i < findings; i++ {
+		fs = append(fs, map[string]any{
+			"path":              fmt.Sprintf("file%d.go", i),
+			"status":            "modified",
+			"nearest_criterion": "C1",
+			"lock_id":           statsPlain,
+			"fix":               "intentgate amend",
+		})
+	}
+	if fs == nil {
+		fs = []map[string]any{}
+	}
+	var ls []map[string]any
+	if outcome != "no-lock" && outcome != "skipped" {
+		if suspect == nil {
+			suspect = []string{}
+		}
+		ls = append(ls, map[string]any{
+			"path": lockPath(statsPlain), "id": statsPlain, "revision": 1,
+			"suspect": suspect, "problems": []string{}, "criteria": []any{},
+		})
+		for i := 0; i < locksExtra; i++ {
+			ls = append(ls, map[string]any{
+				"path": lockPath(statsAddGlob), "id": statsAddGlob, "revision": 1,
+				"suspect": []string{}, "problems": []string{}, "criteria": []any{},
+			})
+		}
+	} else {
+		ls = []map[string]any{}
+	}
+	vdoc := map[string]any{
+		"schema":    "intentgate.verify/1",
+		"outcome":   outcome,
+		"exit_code": map[string]int{"clean": 0, "no-lock": 0, "skipped": 0, "findings": 1, "unverifiable": 3}[outcome],
+		"problems":  []string{},
+		"locks":     ls,
+		"findings":  fs,
+	}
+	vb, err := json.Marshal(vdoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := audit.Event{
+		Schema: audit.SchemaID, Event: audit.EventVerify, At: at,
+		Repo: repo, PR: pr, BaseSHA: strings.Repeat("a", 40), HeadSHA: headSHA,
+		BaseBranch: "main", Author: "octocat", AuthorType: "User",
+		IntentGateVersion: "0.3.0", VerifySHA256: sha256Hex(vb),
+		Locks: []audit.LockEntry{}, Outcome: outcome,
+		ExitCode: vdoc["exit_code"].(int), Conclusion: "neutral",
+	}
+	verifyPath = filepath.Join(dir, "verify.json")
+	auditPath = filepath.Join(dir, "audit.json")
+	if err := os.WriteFile(verifyPath, vb, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auditPath, audit.JSON(ev), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return auditPath, verifyPath
+}
+
+// REQ-0040, REQ-0041, REQ-0042
+func TestStats_ArtifactsFindingsPerPR(t *testing.T) {
+	// Populate a separate repo so a real `intentgate verify --out-dir` run feeds PR #2 inside r's window.
+	buildRealVerifyPR2 := func(t *testing.T, outDir string) {
+		t.Helper()
+		vr := newVRepo(t)
+		vr.feature()
+		_, ldata := mkLock(t, lockA, "main", ratifiedOK, crit("C1", "Docs only", "docs/**"))
+		vr.write(lockPath(lockA), string(ldata))
+		vr.write("a.go", "package main\n")
+		vr.write("b.go", "package main\n")
+		vr.commit("two findings outside footprint", headDate)
+		var out, errb bytes.Buffer
+		deps := Deps{
+			Now: func() time.Time { return time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC) },
+			Dir: vr.dir, Stderr: &errb,
+		}
+		code := Run([]string{
+			"verify", "--base", "main", "--head", "feature", "--base-branch", "main",
+			"--author", "octocat", "--author-type", "User",
+			"--out-dir", outDir, "--repo", "owner/name", "--pr", "2",
+		}, strings.NewReader(""), &out, deps)
+		if code != 1 {
+			t.Fatalf("real verify exit = %d, want 1; stderr=%q", code, errb.String())
+		}
+	}
+
+	buildArtifactsDir := func(t *testing.T) string {
+		t.Helper()
+		dir := t.TempDir()
+		h := strings.Repeat("1", 40)
+		// PR 1: 2 runs in window, earlier findings=3 -> later clean=0 (latest wins)
+		writeArtifactPair(t, filepath.Join(dir, "pr1", "run1"), "owner/name", 1, "2026-11-24T10:00:00Z", h, "findings", 3, nil, 0)
+		writeArtifactPair(t, filepath.Join(dir, "pr1", "run2"), "owner/name", 1, "2026-11-25T10:00:00Z", strings.Repeat("2", 40), "clean", 0, nil, 0)
+		// PR 2: real verify run -> findings=2, suspect=0
+		buildRealVerifyPR2(t, filepath.Join(dir, "pr2"))
+		// PR 3: findings=0, suspect=1
+		writeArtifactPair(t, filepath.Join(dir, "pr3"), "owner/name", 3, "2026-11-28T10:00:00Z", h, "findings", 0, []string{"expired"}, 0)
+		// PR 4: findings=4, suspect=1
+		writeArtifactPair(t, filepath.Join(dir, "nested", "pr4"), "owner/name", 4, "2026-12-01T10:00:00Z", h, "findings", 4, []string{"repo-wide-footprint"}, 1)
+		// PR 5: no-lock
+		writeArtifactPair(t, filepath.Join(dir, "pr5"), "owner/name", 5, "2026-12-02T10:00:00Z", h, "no-lock", 0, nil, 0)
+		// PR 6: bot skipped
+		writeArtifactPair(t, filepath.Join(dir, "pr6"), "owner/name", 6, "2026-12-03T10:00:00Z", h, "skipped", 0, nil, 0)
+		// PR 7: outside 30d window
+		writeArtifactPair(t, filepath.Join(dir, "pr7"), "owner/name", 7, "2026-10-15T10:00:00Z", h, "findings", 9, []string{"expired"}, 0)
+		// Ignored: pr=0 and non-verify lock event
+		writeArtifactPair(t, filepath.Join(dir, "local"), "owner/name", 0, "2026-12-04T10:00:00Z", h, "findings", 5, nil, 0)
+		if err := os.MkdirAll(filepath.Join(dir, "lockonly"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		lockEv := audit.NewLockEvent(audit.EventLock, lock.Lock{ID: statsPlain, Revision: 1, Hash: "sha256:aa", Ratification: lock.Ratification{Method: "hook"}}, time.Date(2026, 12, 4, 10, 0, 0, 0, time.UTC), "0.3.0", "owner/name")
+		if err := os.WriteFile(filepath.Join(dir, "lockonly", "audit.json"), audit.JSON(lockEv), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+
+	t.Run("computes exact JSON and text metrics with --artifacts", func(t *testing.T) {
+		r := statsRepo(t)
+		art := buildArtifactsDir(t)
+
+		code, stdout, stderr := r.stats("--artifacts", art, "--format", "json")
+		if code != 0 || stderr != "" {
+			t.Fatalf("json exit %d, stderr %q, stdout %q", code, stderr, stdout)
+		}
+		var doc struct {
+			statsOut
+			Artifacts *artifactsOut `json:"artifacts"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &doc); err != nil {
+			t.Fatalf("unmarshal %q: %v", stdout, err)
+		}
+		if doc.Artifacts == nil {
+			t.Fatalf("artifacts missing from JSON: %s", stdout)
+		}
+		a := doc.Artifacts
+		if a.Runs != 6 || a.PRs != 5 || a.PRsWithLock != 4 || a.PRsWithFindings != 3 ||
+			a.FindingsPRRate != "0.7500" || a.FindingsPRRatio != "3/4" ||
+			a.TotalFindings != 6 || a.FindingsPerPR != "1.5000" ||
+			a.MedianFindingsPerPR == nil || *a.MedianFindingsPerPR != 0 || a.PRsWithSuspectLock != 2 {
+			t.Errorf("artifacts = %+v (median=%v)", a, a.MedianFindingsPerPR)
+		}
+
+		// Key order check inside JSON.
+		last := strings.Index(stdout, `"median_review_duration_ms"`)
+		for _, k := range []string{
+			`"artifacts"`, `"runs"`, `"prs"`, `"prs_with_lock"`, `"prs_with_findings"`,
+			`"findings_pr_rate"`, `"findings_pr_ratio"`, `"total_findings"`, `"findings_per_pr"`,
+			`"median_findings_per_pr"`, `"prs_with_suspect_lock"`,
+		} {
+			idx := strings.Index(stdout, k)
+			if idx <= last {
+				t.Fatalf("key %s out of order in:\n%s", k, stdout)
+			}
+			last = idx
+		}
+
+		// Text output lines.
+		code, text, stderr := r.stats("--artifacts", art)
+		if code != 0 || stderr != "" {
+			t.Fatalf("text exit %d, stderr %q", code, stderr)
+		}
+		for _, want := range []string{
+			"artifact PRs: 5 (4 with a lock, 6 runs)\n",
+			"PRs with findings: 0.7500 (3/4, 2 with suspect lock)\n",
+			"findings per PR: 1.5000 (total 6, median 0)\n",
+		} {
+			if !strings.Contains(text, want) {
+				t.Errorf("text lacks %q:\n%s", want, text)
+			}
+		}
+
+		// Deterministic across TZ/LC_ALL and identical for relative path vs absolute path.
+		rel, err := filepath.Rel(r.dir, art)
+		if err != nil {
+			rel = art
+		}
+		t.Setenv("TZ", "Pacific/Auckland")
+		t.Setenv("LC_ALL", "tr_TR.UTF-8")
+		t.Setenv("LANG", "tr_TR.UTF-8")
+		_, stdout2, _ := r.stats("--artifacts", rel, "--format", "json")
+		_, text2, _ := r.stats("--artifacts", rel)
+		if stdout2 != stdout || text2 != text {
+			t.Errorf("not deterministic across TZ/LC_ALL/relative path")
+		}
+	})
+
+	t.Run("without --artifacts, JSON and text omit artifact fields", func(t *testing.T) {
+		r := statsRepo(t)
+		_, js, _ := r.stats("--format", "json")
+		_, txt, _ := r.stats()
+		if strings.Contains(js, `"artifacts"`) || strings.Contains(txt, "artifact PRs:") {
+			t.Errorf("unexpected artifact output:\n%s\n%s", js, txt)
+		}
+	})
+
+	t.Run("non-zero median (odd and even lower-middle) and empty window", func(t *testing.T) {
+		r := statsRepo(t)
+		dOdd := t.TempDir()
+		h := strings.Repeat("1", 40)
+		writeArtifactPair(t, filepath.Join(dOdd, "1"), "o/r", 1, "2026-12-01T10:00:00Z", h, "findings", 1, nil, 0)
+		writeArtifactPair(t, filepath.Join(dOdd, "2"), "o/r", 2, "2026-12-02T10:00:00Z", h, "findings", 2, nil, 0)
+		writeArtifactPair(t, filepath.Join(dOdd, "3"), "o/r", 3, "2026-12-03T10:00:00Z", h, "findings", 4, nil, 0)
+		_, jsOdd, _ := r.stats("--artifacts", dOdd, "--format", "json")
+		if !strings.Contains(jsOdd, `"median_findings_per_pr": 2`) {
+			t.Errorf("odd median wrong:\n%s", jsOdd)
+		}
+
+		dEven := t.TempDir()
+		writeArtifactPair(t, filepath.Join(dEven, "1"), "o/r", 1, "2026-12-01T10:00:00Z", h, "findings", 1, nil, 0)
+		writeArtifactPair(t, filepath.Join(dEven, "2"), "o/r", 2, "2026-12-02T10:00:00Z", h, "findings", 3, nil, 0)
+		_, jsEven, _ := r.stats("--artifacts", dEven, "--format", "json")
+		if !strings.Contains(jsEven, `"median_findings_per_pr": 1`) {
+			t.Errorf("even lower-middle median wrong:\n%s", jsEven)
+		}
+
+		empty := t.TempDir()
+		code, jsEmpty, _ := r.stats("--artifacts", empty, "--format", "json")
+		if code != 0 || !strings.Contains(jsEmpty, `"findings_pr_rate": "n/a"`) || !strings.Contains(jsEmpty, `"median_findings_per_pr": null`) {
+			t.Errorf("empty artifacts exit %d:\n%s", code, jsEmpty)
+		}
+		_, txt1d, _ := r.stats("--artifacts", dEven, "--since", "1d")
+		if !strings.Contains(txt1d, "findings per PR: n/a (total 0, median n/a)\n") {
+			t.Errorf("1d text wrong:\n%s", txt1d)
+		}
+	})
+
+	t.Run("error cases: usage exit 2 and corrupt or untrusted artifacts exit 3", func(t *testing.T) {
+		r := statsRepo(t)
+		if code, _, _ := r.stats("--artifacts", ""); code != 2 {
+			t.Errorf("--artifacts \"\": exit %d, want 2", code)
+		}
+		notDir := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		badCases := map[string]func(t *testing.T) string{
+			"missing dir":  func(*testing.T) string { return filepath.Join(t.TempDir(), "none") },
+			"file not dir": func(*testing.T) string { return notDir },
+			"corrupt audit": func(t *testing.T) string {
+				d := t.TempDir()
+				_ = os.WriteFile(filepath.Join(d, "audit.json"), []byte("{"), 0o644)
+				return d
+			},
+			"wrong audit schema": func(t *testing.T) string {
+				d := t.TempDir()
+				_ = os.WriteFile(filepath.Join(d, "audit.json"), []byte(`{"schema":"other/1"}`), 0o644)
+				return d
+			},
+			"bad at timestamp": func(t *testing.T) string {
+				d := t.TempDir()
+				_ = os.WriteFile(filepath.Join(d, "audit.json"), []byte(`{"schema":"intentgate.audit/1","event":"verify","at":"not-a-time","pr":1}`), 0o644)
+				return d
+			},
+			"missing verify.json": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				_ = ap
+				_ = os.Remove(vp)
+				return d
+			},
+			"verify_sha256 mismatch": func(t *testing.T) string {
+				d := t.TempDir()
+				_, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				_ = os.WriteFile(vp, []byte(`{"schema":"intentgate.verify/1","outcome":"clean","locks":[],"findings":[]}`), 0o644)
+				return d
+			},
+			"corrupt verify.json": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				bad := []byte("{")
+				_ = os.WriteFile(vp, bad, 0o644)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, VerifySHA256: sha256Hex(bad), Outcome: "clean", Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
+			"wrong verify schema": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				bad := []byte(`{"schema":"wrong/1","outcome":"clean","locks":[],"findings":[]}`)
+				_ = os.WriteFile(vp, bad, 0o644)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, VerifySHA256: sha256Hex(bad), Outcome: "clean", Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
+			"invalid verify outcome": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				bad := []byte(`{"schema":"intentgate.verify/1","outcome":"bogus","locks":[],"findings":[]}`)
+				_ = os.WriteFile(vp, bad, 0o644)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, VerifySHA256: sha256Hex(bad), Outcome: "bogus", Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
+			"outcome mismatch": func(t *testing.T) string {
+				d := t.TempDir()
+				ap, vp := writeArtifactPair(t, d, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				v := []byte(`{"schema":"intentgate.verify/1","outcome":"findings","locks":[],"findings":[]}`)
+				_ = os.WriteFile(vp, v, 0o644)
+				ev := audit.Event{Schema: audit.SchemaID, Event: audit.EventVerify, At: "2026-12-01T10:00:00Z", PR: 1, VerifySHA256: sha256Hex(v), Outcome: "clean", Locks: []audit.LockEntry{}}
+				_ = os.WriteFile(ap, audit.JSON(ev), 0o644)
+				return d
+			},
+			"symlinked audit.json": func(t *testing.T) string {
+				d := t.TempDir()
+				realDir := t.TempDir()
+				ap, _ := writeArtifactPair(t, realDir, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				_ = os.Symlink(ap, filepath.Join(d, "audit.json"))
+				return d
+			},
+			"symlinked verify.json": func(t *testing.T) string {
+				d := t.TempDir()
+				realDir := t.TempDir()
+				ap, vp := writeArtifactPair(t, realDir, "o/r", 1, "2026-12-01T10:00:00Z", strings.Repeat("1", 40), "clean", 0, nil, 0)
+				data, _ := os.ReadFile(ap)
+				_ = os.WriteFile(filepath.Join(d, "audit.json"), data, 0o644)
+				_ = os.Symlink(vp, filepath.Join(d, "verify.json"))
+				return d
+			},
+			"directory named audit.json": func(t *testing.T) string {
+				d := t.TempDir()
+				_ = os.MkdirAll(filepath.Join(d, "audit.json"), 0o755)
+				return d
+			},
+		}
+		for name, mk := range badCases {
+			t.Run(name, func(t *testing.T) {
+				if code, _, stderr := r.stats("--artifacts", mk(t)); code != 3 || stderr == "" {
+					t.Errorf("%s: exit %d, stderr %q; want 3 and error message", name, code, stderr)
+				}
+			})
+		}
 	})
 }
