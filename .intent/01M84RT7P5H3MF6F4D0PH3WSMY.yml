@@ -1,0 +1,30 @@
+schema: intentgate.lock/1
+id: 01M84RT7P5H3MF6F4D0PH3WSMY
+revision: 1
+base_ref: main
+root_intent:
+  sha256: dc7209d1f52e104310ff2392a782c6aab2beb4b1bed1141c876b0c3321679e8b
+  source: antigravity-session
+  redactions: 0
+criteria:
+  - id: C1
+    text: Offline uv-managed Python eval/ harness scores and sweeps Jev plan-review thresholds (precision, recall, F1, Brier, ECE with Go-parity item splitting and cross-kind dedupe) on a labelled seeded-mutation corpus, and internal/planreview/jev.go uses the empirically calibrated per-kind thresholds
+    footprint:
+      - eval/**
+      - internal/planreview/**
+      - scripts/check.sh
+      - docs/process/sdlc-map.yml
+      - docs/process/sdlc-map.md
+ratification:
+  ratifier: git:231933685+autox-my@users.noreply.github.com
+  ratified_at: "2026-11-23T17:56:13Z"
+  method: hook
+  review_duration_ms: 6688
+  drafted_by: antigravity/gemini-flash-worker-agy
+plan_review:
+  status: unavailable
+  omissions: 0
+  additions: 0
+  weakenings: 0
+amendments: []
+hash: sha256:b6d43b3271a2833bb06f83d8854624a41cc5e59e99fa5b70857b1834d5a8a72c
