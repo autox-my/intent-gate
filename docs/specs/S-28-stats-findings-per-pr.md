@@ -79,6 +79,11 @@ No new claims and no Baseline changes. Existing linked tests on `REQ-0040`, `REQ
 - **Process map (`docs/process/sdlc-map.yml`, `docs/process/sdlc-map.md`):**
   - Update the `closing the loop` product description to mention findings per PR from CI artifacts, and re-render with `python3 -I scripts/sdlc-map.py`.
 - **Dependencies:** none new.
+- **Review 1 amendments (binding):**
+  - Split `cmd/intentgate/stats.go` helpers (`parseStatsFlags`, `readAuditEvent`, `loadVerifyArtifact`, `loadArtifactPair`) and invoke `readArtifactSummary` outside `computeStats` so `runStats` and every S-28 helper stays at cyclomatic complexity ≤ 10 (and `computeStats` gains no new branch).
+  - Check `--artifacts` root with `os.Lstat`: a symlinked root exits 3 (never silently returns 0 PRs).
+  - Require non-empty `verify_sha256` and `outcome` on in-window `verify` events (matching `verify.json` SHA-256 and `outcome`, consistent with `verify --replay`); empty values exit 3.
+  - Distinguish JSON parse errors on `audit.json` from schema mismatch errors (`"is not an intentgate.audit/1 event"`).
 
 ## Tests first (committed red)
 
