@@ -32,7 +32,7 @@ type PlanReviewer interface {
 }
 ```
 
-- **Jev provider:** one atomic question per (root-intent item, plan) pair for omissions and weakenings, and per (plan item, root intent) pair for additions. Batched and run in parallel.
+- **Jev provider:** one atomic question per (root-intent item, plan) pair for omissions and weakenings, and per (plan item, root intent) pair for additions. Batched and run in parallel. Each finding family has its own noul threshold (`omitMax`, `weakMin`, `addMax`), calibrated offline against a labelled seeded-mutation corpus under `eval/` (ADR 0001) using Brier score, ECE, and post-dedupe precision/recall sweeps (targeting ≥ 90% precision).
 - **Unavailable provider:** used when no credentials are configured. It returns no findings and the status `unavailable`.
 
 The root intent sent to the provider is the secret-masked text (ratification.md §5).
