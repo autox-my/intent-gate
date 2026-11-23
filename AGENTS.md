@@ -71,7 +71,7 @@ Follow the setup that matches the active harness:
 ### The flow for one slice
 
 1. Orchestrator commits the spec (`docs(specs): S-NN …`).
-   The orchestrator then presents the spec as a plan: approving it in plan mode writes the intent lock (the hook installed by `intentgate init`). Where the harness captures plan approval (T3 Code), the orchestrator writes the spec, runs `intentgate hook claude-code ratify-question docs/specs/S-NN-*.md` and asks that exact card; the human's `Ratify` writes the lock. Where the hook can't run, `scripts/lock-slice.sh <S-NN>` does the same.
+   The orchestrator then presents the spec as a plan: approving it in plan mode writes the intent lock (the hook installed by `intentgate init`). In Antigravity (or T3 Code), run `intentgate hook antigravity ratify-question docs/specs/S-NN-*.md` and ask that exact card via `ask_question` (in Claude Code under T3 Code, use `intentgate hook claude-code ratify-question`); the human's `Ratify` writes the lock. Where no hook can run, `scripts/lock-slice.sh <S-NN>` does the same.
 2. Worker, on branch `feature/s-NN-<slug>` in its own worktree:
    1. `test(<pkg>): … (red at the base)`: the tests, plus only the stubs needed to compile. They must fail on **assertions**, not compile errors. Quote the failure in the report.
    2. `feat(<pkg>): …`: the code that turns them green, plus `tests:` links on the spec's claims.
@@ -101,5 +101,5 @@ criteria:
     footprint: ["<repo-relative glob>"]
 ```
 
-Start work in plan mode; approving the plan writes the intent lock.
+Write your plan (ending in that block) to a file, run `intentgate hook antigravity ratify-question <file>`, and ask that exact question with `ask_question`; choosing `Ratify` writes the intent lock.
 <!-- intentgate:end -->

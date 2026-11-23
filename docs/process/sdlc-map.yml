@@ -34,9 +34,9 @@ entries:
     paths: ["scripts/check.sh"]
   - kind: BUILD
     title: "Plan mode"
-    detail: "intentgate init · .claude/settings.json · scripts/lock-slice.sh"
+    detail: "intentgate init · .claude/settings.json · .agents/hooks.json · scripts/lock-slice.sh"
     feeds: code
-    paths: ["AGENTS.md", "CLAUDE.md", ".claude/settings.json", ".intentgate.yml", "scripts/lock-slice.sh"]
+    paths: ["AGENTS.md", "CLAUDE.md", ".claude/settings.json", ".agents/hooks.json", ".intentgate.yml", "scripts/lock-slice.sh"]
     commands: ["init"]
   - kind: DEPLOY
     title: "IntentGate hooks + Action"
