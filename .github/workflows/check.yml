@@ -17,6 +17,7 @@ env:
   REQ_ASSET: req-161c336-x86_64-unknown-linux-gnu.tar.gz
   # SHA-256 of the asset, read from the release's .sha256 file. A replaced asset fails the install.
   REQ_SHA256: e54c46a0e5dd0cb843e4b01c098698196cc04e613acd451c383411a266e33d51
+  MILL_REF: 68e5a54
 
 jobs:
   check:
@@ -63,10 +64,72 @@ jobs:
           echo "$version" | grep -Eq 'rules_v +9'
 
       - name: Gate
-        run: scripts/check.sh
+        run: |
+          set -o pipefail
+          scripts/check.sh | tee "$RUNNER_TEMP/check.out"
 
       - name: Requirements that moved
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: req diff --base "origin/$BASE_REF" --fail-on weakened,removed,reshaped
+        run: |
+          set -o pipefail
+          req diff --base "origin/$BASE_REF" --fail-on weakened,removed,reshaped | tee "$RUNNER_TEMP/req-diff.out"
+
+      - name: Check advisory mill config
+        id: mill_env
+        if: always()
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          MILL_URL: ${{ secrets.MILL_URL }}
+          MILL_API_TOKEN: ${{ secrets.MILL_API_TOKEN }}
+        run: |
+          if [ -n "$TS_OAUTH_CLIENT_ID" ] && [ -n "$TS_OAUTH_SECRET" ] && [ -n "$MILL_URL" ] && [ -n "$MILL_API_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # tailscale/github-action v4
+      - name: Connect Tailscale (ephemeral CI node)
+        if: always() && steps.mill_env.outputs.enabled == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Install mill
+        if: always() && steps.mill_env.outputs.enabled == 'true'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/mill-bin"
+          GOTOOLCHAIN=auto GOBIN="$RUNNER_TEMP/mill-bin" go install "github.com/autox-my/mill/cmd/mill@$MILL_REF"
+
+      - name: Advisory ingest to mill
+        if: always() && steps.mill_env.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          MILL_URL: ${{ secrets.MILL_URL }}
+          MILL_API_TOKEN: ${{ secrets.MILL_API_TOKEN }}
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          MILL_BIN="$RUNNER_TEMP/mill-bin/mill"
+          if [ -x "$MILL_BIN" ] && [ -f "$RUNNER_TEMP/check.out" ]; then
+            "$MILL_BIN" ingest \
+              --source check \
+              --branch "$BRANCH" \
+              --harness github-actions \
+              --phase ci \
+              --file "$RUNNER_TEMP/check.out" || true
+          fi
+          if [ -x "$MILL_BIN" ] && [ -f "$RUNNER_TEMP/req-diff.out" ]; then
+            "$MILL_BIN" ingest \
+              --source req-diff \
+              --branch "$BRANCH" \
+              --harness github-actions \
+              --phase req-diff \
+              --file "$RUNNER_TEMP/req-diff.out" || true
+          fi
